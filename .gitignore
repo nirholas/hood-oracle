@@ -1,0 +1,12 @@
+node_modules/
+dist/
+web/dist/
+.env
+.env.local
+.env.*.local
+*.log
+data/
+KILL
+.DS_Store
+coverage/
+.vite/
