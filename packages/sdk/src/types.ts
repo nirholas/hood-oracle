@@ -252,8 +252,97 @@ export interface Arm {
   // notifications / grouping
   telegramChatId: string | null
   experimentGroup: string | null
+  /**
+   * The on-chain HoodArmAccount this arm trades from, or null for the legacy
+   * arm that trades the operator's own hot wallet. When set, the executor
+   * routes every buy and sell through the account contract and the chain
+   * enforces the caps in {@link ArmAccount.policy} on top of these knobs.
+   */
+  accountId: string | null
   createdAt: Date
   updatedAt: Date
+}
+
+// ── on-chain arm accounts (multi-tenant, non-custodial) ──────────────────────
+
+/**
+ * Where an account stands from the engine's point of view.
+ *   pending  the create transaction is recorded but the chain has not been
+ *            read back yet (no policy, no balances).
+ *   active   the account exists, our engine key is its `operator`, and the
+ *            cached policy and balances are from a real chain read.
+ *   revoked  the owner rotated the operator away from us (or killed the
+ *            account). Arms bound to it are disabled and never trade.
+ */
+export type AccountStatus = 'pending' | 'active' | 'revoked'
+
+/**
+ * The owner's on-chain bounds, mirroring `Policy` in
+ * `contracts/src/libraries/PolicyLib.sol` field for field. Every number here
+ * is enforced by the account contract itself, so it is a ceiling no server
+ * bug and no leaked hot key can raise.
+ */
+export interface AccountPolicy {
+  perTradeCapWei: bigint
+  dailyBudgetWei: bigint
+  maxOpenPositions: number
+  maxSlippageBps: number
+  cooldownSeconds: number
+  maxHoldSecondsHint: number
+  /** 0 disables the on-chain oracle gate; 1..100 requires a fresh attestation at least this high. */
+  minOracleScore: number
+  allowedRouter: Address
+  quoteToken: Address
+}
+
+/** One user's HoodArmAccount clone as the server caches it. */
+export interface ArmAccount {
+  id: string
+  /** The wallet that signed the create transaction and holds withdrawal rights. */
+  ownerAddress: Address
+  /** The clone's address: where the funds actually sit. */
+  accountAddress: Address
+  chainId: number
+  factoryAddress: Address
+  deployedTx: Hash | null
+  /** Whoever the account currently calls `operator`. Ours, until the owner rotates it. */
+  operatorAddress: Address | null
+  status: AccountStatus
+  label: string | null
+  /** Last policy read from the chain; null while the account is still pending. */
+  policy: AccountPolicy | null
+  /** Why the account was marked revoked, in one sentence. */
+  revokedReason: string | null
+  ethBalanceWei: bigint
+  wethBalanceWei: bigint
+  createdAt: Date
+  lastSyncedAt: Date | null
+}
+
+/** Live chain facts an account exposes beyond its policy. */
+export interface AccountChainState {
+  owner: Address
+  operator: Address
+  killed: boolean
+  policy: AccountPolicy
+  spentTodayWei: bigint
+  remainingDailyBudgetWei: bigint
+  cooldownRemainingSeconds: number
+  openPositionCount: number
+  feesAccruedWei: bigint
+  ethBalanceWei: bigint
+  wethBalanceWei: bigint
+  readAt: Date
+}
+
+/** A wallet sign-in, stored server-side; the browser only ever holds an opaque cookie. */
+export interface WalletSession {
+  id: string
+  address: Address
+  chainId: number
+  issuedAt: Date
+  expiresAt: Date
+  lastSeenAt: Date
 }
 
 // ── positions, trades, decisions ──────────────────────────────────────────────
@@ -333,6 +422,8 @@ export type RefusalReason =
   | 'concurrency' | 'cooldown' | 'slippage_bound' | 'price_impact' | 'wallet_floor'
   | 'firewall' | 'oracle_gate' | 'entry_filter' | 'no_route' | 'zero_amount'
   | 'autonomy_bounds' | 'llm_declined'
+  // on-chain arm accounts (src/engine/account-executor.ts)
+  | 'operator_revoked' | 'account_unavailable'
 
 export interface GuardVerdict {
   ok: boolean

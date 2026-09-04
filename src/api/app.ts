@@ -14,6 +14,8 @@
 import { Hono } from 'hono'
 import { ApiError } from './errors.js'
 import { operatorAuth } from './auth.js'
+import { authRoutes, sessionContext } from './auth-siwe.js'
+import { SessionStore } from '../accounts/session.js'
 import { respond } from './json.js'
 import type { AppDeps } from './deps.js'
 import { createMetrics } from './metrics.js'
@@ -28,6 +30,7 @@ import { streamRoutes } from './routes/stream.js'
 import { metricsRoutes } from './routes/metrics.js'
 import { x402Routes } from './routes/x402.js'
 import { mcpRoutes } from './routes/mcp.js'
+import { accountRoutes } from './routes/accounts.js'
 import { mountStatic } from './static.js'
 
 export type { AppDeps } from './deps.js'
@@ -36,7 +39,9 @@ export function createApp(deps: AppDeps): Hono {
   const app = new Hono()
   const log = deps.log.child({ module: 'api' })
   const metrics = deps.metrics ?? createMetrics({ engine: deps.engine, bus: deps.bus })
-  const scoped: AppDeps = { ...deps, log, metrics }
+  const sessions = deps.sessions ?? new SessionStore({ db: deps.db, key: deps.config.accounts.sessionSecret })
+  const scoped: AppDeps = { ...deps, log, metrics, sessions }
+  // `engineStartup` travels on deps; readiness reads it through `scoped`.
   const startedAt = new Date()
   const limiter = createRateLimiter({
     trustProxy: deps.config.trustProxy,
@@ -61,10 +66,13 @@ export function createApp(deps: AppDeps): Hono {
   app.use('/mcp', limiter.middleware)
   app.use('/api/*', jsonBodyLimit(deps.limits?.bodyLimitBytes))
   app.use('/mcp', jsonBodyLimit(deps.limits?.bodyLimitBytes))
+  app.use('/api/*', sessionContext(scoped))
   app.use('/api/*', operatorAuth(deps.config))
 
   app.route('/api', statusRoutes(scoped, startedAt))
   app.route('/api', metricsRoutes(scoped, metrics))
+  app.route('/api/auth', authRoutes(scoped))
+  app.route('/api/accounts', accountRoutes(scoped))
   app.route('/api/arms', armRoutes(scoped))
   app.route('/api/kill', killRoutes(scoped))
   app.route('/api/oracle', oracleRoutes(scoped))

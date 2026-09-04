@@ -4,6 +4,7 @@ import { EXPLORER_URL } from '../deps.js'
 import type { HealthResponse, StatusResponse } from '../contract.js'
 import { schema } from '../../db/client.js'
 import { ALL_LAUNCHPADS } from '../../chain/launchpads.js'
+import { PUBLIC_RPC } from '../../config.js'
 
 interface CountRow {
   arms_total: string
@@ -64,6 +65,7 @@ export async function statusBody(deps: AppDeps, startedAt: Date): Promise<Status
     network: net,
     chainId: config.chainId,
     explorerUrl: EXPLORER_URL[net],
+    publicRpcUrl: PUBLIC_RPC[net],
     launchpads: [...ALL_LAUNCHPADS],
     operatorTokenSet: config.operatorToken != null,
     engine: engine.health() as unknown as StatusResponse['engine'],

@@ -11,6 +11,7 @@
  * trade.
  */
 import type { AccountPolicy, Arm } from '../types.js'
+import type { AccountPolicyWire } from '../api/contract.js'
 import type { Address } from 'viem'
 import { getAddress } from 'viem'
 
@@ -58,7 +59,7 @@ export function policyToTuple(p: AccountPolicy): PolicyTuple {
 }
 
 /** JSON snapshot for the `accounts.policy` column and the wire: wei as decimal strings. */
-export function policyToJson(p: AccountPolicy): Record<string, unknown> {
+export function policyToJson(p: AccountPolicy): AccountPolicyWire {
   return {
     perTradeCapWei: p.perTradeCapWei.toString(),
     dailyBudgetWei: p.dailyBudgetWei.toString(),

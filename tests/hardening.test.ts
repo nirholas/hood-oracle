@@ -8,6 +8,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { requireNetwork } from 'hood402'
 import { createApp } from '../src/api/app.js'
 import { log } from '../src/log.js'
+import { superviseEngineStart } from '../src/index.js'
+import { createChainClient } from '../src/chain/client.js'
+import { createEngine } from '../src/engine/index.js'
+import { EventBus } from '../src/engine/bus.js'
+import { KillSwitch } from '../src/guards/kill.js'
+import type { EngineStartupState } from '../src/api/deps.js'
 import { cleanupArms, cleanupTokens, createHarness, seedScoredLaunch, syntheticAddress, type Harness } from './api-helpers.js'
 
 let h: Harness
@@ -193,6 +199,8 @@ describe('metrics and readiness', () => {
     expect(res.status).toBe(503)
     const body = (await res.json()) as { ok: boolean; checks: Record<string, { ok: boolean; detail: string }> }
     expect(body.ok).toBe(false)
+    // An app built without an engineStartup reports the engine as already running (the harness started it).
+    expect(body.checks.engine.ok).toBe(true)
     expect(body.checks.db.ok).toBe(true)
     expect(body.checks.model.ok).toBe(true)
     expect(body.checks.model.detail).toContain('bootstrap-test')
@@ -263,4 +271,115 @@ describe('x402 pay-per-score', () => {
     expect(again.error).toBeTruthy()
     expect(again.accepts).toHaveLength(1)
   })
+})
+
+describe('boot with an unreachable RPC', () => {
+  /**
+   * The deployment bug this pins: the HTTP listener used to wait for
+   * `engine.start()`, so a throttled or unreachable RPC kept the port closed
+   * for up to 90 seconds and a Cloud Run startup probe rolled the revision
+   * back. The listener now comes up first and readiness carries the reason.
+   *
+   * Nothing is mocked: a real engine over a real chain client pointed at a
+   * closed port, supervised exactly as `src/index.ts` supervises it.
+   */
+  const engineOnDeadRpc = () => {
+    const config = { ...h.config, disableFeed: true, rpcUrls: ['http://127.0.0.1:1'] }
+    const chain = createChainClient({ network: config.network, rpcUrls: config.rpcUrls, traderPrivateKey: null })
+    const bus = new EventBus()
+    const quiet = silent()
+    const kill = new KillSwitch({ killFile: 'KILL.test-does-not-exist', log: { info: () => undefined, warn: () => undefined } })
+    const engine = createEngine({ config, db: h.db, log: quiet, model: h.model, bus, chain, kill })
+    return { config, engine, bus, kill, log: quiet }
+  }
+
+  // One engine.start() against a closed port costs a full probe cycle
+  // (probeRpcUrls retries six times with backoff), so the budget is generous.
+  const SETTLE_BUDGET_MS = 30_000
+
+  const settle = async (state: () => EngineStartupState, until: (s: EngineStartupState) => boolean) => {
+    const deadline = Date.now() + SETTLE_BUDGET_MS
+    while (Date.now() < deadline) {
+      if (until(state())) return state()
+      await new Promise((r) => setTimeout(r, 50))
+    }
+    throw new Error(`engine startup state never settled: ${JSON.stringify(state())}`)
+  }
+
+  it('serves /api/health 200 while the engine is still starting, and /api/ready 503 naming the engine', async () => {
+    const { config, engine, bus, kill, log: quiet } = engineOnDeadRpc()
+    // A long retry delay keeps the phase at `starting` for the assertions.
+    const supervisor = superviseEngineStart({ engine, log: quiet, attempts: 5, retryMs: 60_000 })
+    const app = createApp({ config, db: h.db, log: silent(), engine, model: h.model, bus, engineStartup: supervisor.state })
+    try {
+      const starting = await settle(supervisor.state, (s) => s.error != null)
+      expect(starting.phase).toBe('starting')
+      expect(starting.attempt).toBe(1)
+      expect(starting.error).toContain('RPC')
+
+      // Liveness is up from the moment the process is alive.
+      const health = await app.request('/api/health')
+      expect(health.status).toBe(200)
+      expect(((await health.json()) as { ok: boolean }).ok).toBe(true)
+
+      // Readiness is not, and says exactly why.
+      const ready = await app.request('/api/ready')
+      expect(ready.status).toBe(503)
+      const body = (await ready.json()) as { ok: boolean; checks: Record<string, { ok: boolean; detail: string }> }
+      expect(body.ok).toBe(false)
+      expect(body.checks.engine.ok).toBe(false)
+      expect(body.checks.engine.detail).toContain('engine is still starting')
+      expect(body.checks.engine.detail).toContain('attempt 1 of 5')
+      expect(body.checks.dataPath.ok).toBe(false)
+      expect(body.checks.dataPath.detail).toContain('not checked')
+      // The rest of the process is healthy, and reads keep serving.
+      expect(body.checks.db.ok).toBe(true)
+      expect(body.checks.model.ok).toBe(true)
+      expect((await app.request('/api/status')).status).toBe(200)
+      expect((await app.request('/api/oracle/feed?limit=1')).status).toBe(200)
+
+      // A signal arriving mid-start must not wait out the retry delay or hang.
+      const started = Date.now()
+      await supervisor.stop()
+      expect(Date.now() - started).toBeLessThan(2_000)
+    } finally {
+      kill.dispose()
+    }
+  }, 60_000)
+
+  it('shuts down promptly when the signal lands while a start is still in flight', async () => {
+    const { engine, kill, log: quiet } = engineOnDeadRpc()
+    // No settle(): stop() is called with attempt 1 still probing the dead RPC.
+    const supervisor = superviseEngineStart({ engine, log: quiet, attempts: 6, retryMs: 60_000, stopGraceMs: 250 })
+    try {
+      expect(supervisor.state().phase).toBe('starting')
+      const started = Date.now()
+      // Must not wait out the probe cycle, must not hang, must not reject.
+      await expect(supervisor.stop()).resolves.toBeUndefined()
+      expect(Date.now() - started).toBeLessThan(2_000)
+      // The supervisor's own promise stays settled and unrejected afterwards.
+      await expect(supervisor.settled).resolves.toBeUndefined()
+    } finally {
+      kill.dispose()
+    }
+  }, 30_000)
+
+  it('reports failed with the reason once the attempts are spent, and keeps the API up', async () => {
+    const { config, engine, bus, kill, log: quiet } = engineOnDeadRpc()
+    const supervisor = superviseEngineStart({ engine, log: quiet, attempts: 1, retryMs: 10, backoffMs: 60_000 })
+    const app = createApp({ config, db: h.db, log: silent(), engine, model: h.model, bus, engineStartup: supervisor.state })
+    try {
+      const failed = await settle(supervisor.state, (s) => s.phase === 'failed')
+      expect(failed.error).toContain('RPC')
+      const ready = await app.request('/api/ready')
+      expect(ready.status).toBe(503)
+      const body = (await ready.json()) as { checks: Record<string, { ok: boolean; detail: string }> }
+      expect(body.checks.engine.detail).toContain('could not start after 1 attempts')
+      expect(body.checks.engine.detail).toContain('keeps retrying')
+      expect((await app.request('/api/health')).status).toBe(200)
+      await supervisor.stop()
+    } finally {
+      kill.dispose()
+    }
+  }, 60_000)
 })

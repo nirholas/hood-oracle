@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Accounts · hood-oracle</title>
+  <meta name="description" content="Connect a wallet and trade from your own on-chain arm account. The engine operates it; only you can withdraw." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='7' y='7' width='18' height='18' rx='4' transform='rotate(45 16 16)' fill='%23cdd2e0'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/src/styles.css" />
+  <style>
+    .acct-list { display: flex; flex-direction: column; gap: 10px; }
+    .acct { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 14px; align-items: center; width: 100%; text-align: left; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--ghost); transition: border-color .18s, background .18s, transform .14s; }
+    .acct:hover { border-color: color-mix(in srgb, var(--cyan) 45%, var(--line)); background: var(--ghost-2); transform: translateY(-1px); }
+    .acct.on { border-color: color-mix(in srgb, var(--cyan) 60%, var(--line)); background: color-mix(in srgb, var(--cyan) 8%, var(--ghost)); }
+    .acct .a-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .acct .a-addr { font: 700 13px/1 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .acct .a-sub { grid-column: 1 / -1; font: 500 11px/1.4 var(--mono); color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; }
+    .acct .a-bal { font: 800 14px/1 var(--mono); white-space: nowrap; text-align: right; }
+    .b-active { background: color-mix(in srgb, var(--up) 20%, transparent); color: var(--up); }
+    .b-pending { background: color-mix(in srgb, var(--amber) 20%, transparent); color: var(--amber); }
+    .b-revoked { background: color-mix(in srgb, var(--red) 20%, transparent); color: var(--red); }
+    .wallet-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font: 600 12.5px/1 var(--mono); }
+    .wallet-line .dot { width: 8px; height: 8px; }
+    .steps { counter-reset: s; display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 0; list-style: none; }
+    .steps li { counter-increment: s; position: relative; padding-left: 34px; font-size: 13px; color: var(--muted); line-height: 1.55; }
+    .steps li::before { content: counter(s); position: absolute; left: 0; top: -1px; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); display: grid; place-items: center; font: 700 11px/1 var(--mono); color: var(--cyan); background: var(--ghost); }
+    .steps li b { color: var(--ink); display: block; font-size: 13px; margin-bottom: 2px; }
+    .tx-box { border: 1px solid var(--line); border-radius: var(--r-sm); padding: 12px; background: var(--ghost); font: 500 12px/1.6 var(--mono); word-break: break-all; }
+    .tx-box b { color: var(--cyan); }
+    dialog.wide { max-width: 560px; }
+  </style>
+</head>
+<body>
+  <header id="top" class="top"></header>
+  <main class="wrap">
+    <div class="hero">
+      <div>
+        <span class="eyebrow">Non-custodial · chain-enforced</span>
+        <h1>Trade from your own account</h1>
+        <p>Deploy a HoodArmAccount, fund it, and point an arm at it. The engine is only its operator: it can swap inside the caps you set on-chain and nothing else. Withdrawals, policy changes and the kill switch stay with the wallet that created it.</p>
+      </div>
+      <div class="btn-row">
+        <a class="btn sm ghost" href="/docs/multi-tenant">How it works</a>
+        <a class="btn sm ghost" href="/app/arm">Arms</a>
+      </div>
+    </div>
+
+    <div class="layout thirds">
+      <div class="col">
+        <div class="card">
+          <div class="card-head"><div><h3>Wallet</h3><p class="sub">One signature proves the address. It moves no funds.</p></div></div>
+          <div id="walletCard"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div><h3>Your accounts <span class="badge" id="acctCount"></span></h3><p class="sub">Every clone this wallet owns on this chain.</p></div><button type="button" class="btn xs ghost" id="reloadBtn" title="Re-read the factory and the chain">Reload</button></div>
+          <div class="acct-list" id="acctList" aria-busy="true"></div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="card" id="detailCard"></div>
+      </div>
+    </div>
+
+    <div class="foot">The operator key can only call <code>buy</code> and <code>sell</code> through the router your policy allows, inside your per-trade cap, daily budget, cooldown and slippage bound. It can never withdraw. Loosening a bound queues for one hour; tightening one lands immediately. Nothing here is financial advice.</div>
+  </main>
+
+  <dialog id="txDialog" class="wide" aria-labelledby="txTitle">
+    <form method="dialog">
+      <h3 id="txTitle">Confirm the transaction</h3>
+      <p id="txNote" class="sub"></p>
+      <div class="tx-box" id="txBox"></div>
+      <div class="btn-row" style="margin-top:16px;justify-content:flex-end">
+        <button type="button" class="btn sm" id="txCancel">Cancel</button>
+        <button type="submit" class="btn sm primary" id="txConfirm">Sign in wallet</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="/src/connect.ts"></script>
+</body>
+</html>

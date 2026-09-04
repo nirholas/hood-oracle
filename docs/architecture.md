@@ -28,6 +28,7 @@ log watchers ───┼─▶ launch intake ─▶ 90s observation ─▶ feat
 | `src/engine/` | launch intake, observation window, feature extraction, scoring pipeline, executor, positions sweep, exit ladder, journal, alerts, jobs scheduler | the trading loop |
 | `src/oracle/` | conviction model (pure), fitter (pure), model store, calibration, labels, refit job, narrative classifier, bootstrap model | feature-in / score-out, no I/O in the pure parts |
 | `src/guards/` | risk engine, kill switch, earned autonomy, optimizer, firewall | fail closed |
+| `src/accounts/` | EIP-4361 sign-in, sessions, the on-chain account registry, the policy codec and ABIs | the non-custodial layer; see [multi-tenant.md](multi-tenant.md) |
 | `src/api/` | Hono app, routes, shared handlers (`handlers/`), middleware (`middleware/`: request id, security headers, access log, CORS, rate limit, body limit), metrics, auth, SSE, x402, static dashboard | operator token on writes; the same handlers serve HTTP and MCP |
 | `src/mcp/` | the MCP server: tools and resources over stdio (`stdio.ts`, talks to a running engine over HTTP) and Streamable HTTP (`/mcp`, in-process) | write tools gated by the operator token |
 | `packages/sdk/` | `@hood-oracle/sdk`: typed client, SSE iterator, `waitForScore`, x402 helper | its types are a generated copy of `src/api/contract.ts` |
@@ -37,16 +38,39 @@ log watchers ───┼─▶ launch intake ─▶ 90s observation ─▶ feat
 
 ## Process shape
 
-`src/index.ts` boots in this order and refuses to start if any step fails:
+`src/index.ts` boots in this order. Everything that a bad deploy can break
+fails fast and loudly BEFORE the listener opens; everything that depends on a
+third party comes up behind it:
 
 1. `loadConfig()`
 2. DB connect + pending-migration check (exit 4 if pending; never auto-apply in prod)
 3. model store: load the active model row, else the bootstrap prior
-4. chain client + wallet (live signing only when `TRADER_PRIVATE_KEY` is set AND an arm is live)
-5. kill switch armed (SIGINT/SIGTERM, `KILL` file, `POST /api/kill`, `GLOBAL_KILL` env)
-6. engine: feed, watchers, observation windows, scorer, executor, positions sweep (2s)
-7. jobs: realized labels (30m), calibration (6h), refit (6h), optimizer (6h), equity marks (60s)
-8. Hono API on `PORT`, serving `web/dist`, `/mcp`, `/api/metrics` and `/api/ready`
+4. chain client + wallet (live signing only when `TRADER_PRIVATE_KEY` is set AND an arm is live). Builds clients; talks to nobody yet
+5. kill switch (SIGINT/SIGTERM, `KILL` file, `POST /api/kill`, `GLOBAL_KILL` env), event bus, engine construction: still no I/O
+6. **Hono API on `PORT`**, serving `web/dist`, `/mcp`, `/api/metrics` and `/api/ready`. `GET /api/health` answers 200 from here on
+7. engine start in the background, retried: feed, watchers, observation windows, scorer, executor, positions sweep (2s)
+8. jobs, once the engine is running: realized labels (30m), calibration (6h), refit (6h), optimizer (6h), equity marks (60s)
+
+**Why the listener comes up before the engine.** `engine.start()` probes the
+RPC, and the public Robinhood Chain endpoint rate-limits per address ("Rate
+Limit Hit, limit will reset in 60 seconds"). Starting the engine first left
+the port closed for up to 90 seconds, which fails a Cloud Run startup probe
+and rolls the revision back: a throttled RPC at deploy time took the whole
+deploy down. Now the listener is up in milliseconds and the engine starts
+behind it, retried at 15s for six attempts and every 60s after that, so an
+instance recovers by itself when the chain does.
+
+`/api/health` (liveness) is 200 as soon as the process is alive.
+`/api/ready` (readiness) is 503 with `checks.engine` naming the phase, the
+attempt and the last error until the engine is actually running, so a
+rollout waits for the engine instead of dying with it. Config, database and
+model failures still refuse to boot at all.
+
+**Shutdown** on SIGTERM/SIGINT: stop accepting connections, stop the engine
+(interrupting a start still in flight rather than sitting out its retry
+delay), stop the jobs, close the database, exit 0; exit 1 if that does not
+finish inside 25 seconds. An unhandled rejection or uncaught exception is
+logged with its module and the process exits non-zero.
 
 Shutdown on SIGTERM or SIGINT: the listener stops accepting connections,
 the engine stops, the oracle jobs stop, the database pool closes, exit 0; a
@@ -131,6 +155,7 @@ image beside Postgres 17.
 - [guardrails.md](guardrails.md): every check, the kill switch, autonomy, the optimizer
 - [oracle.md](oracle.md): features, heads, labels, fit, gate, calibration, backfill
 - [arming.md](arming.md): simulate, read the ledger, go live, earn autonomy
+- [multi-tenant.md](multi-tenant.md): wallet sign-in, on-chain arm accounts, what an owner keeps
 - [api.md](api.md): every route with examples
 - [deploy.md](deploy.md): Cloud Run, secrets, the accelerator RPC, rollback
 - [mcp.md](mcp.md): the MCP server, every tool, client configuration

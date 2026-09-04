@@ -72,6 +72,8 @@ const shape = {
   // notifications / grouping
   telegramChatId: z.string().trim().regex(/^-?\d+$/, 'Telegram chat ids are numeric').nullable(),
   experimentGroup: z.string().trim().max(80).nullable().transform((v) => (v ? v : null)),
+  /** The on-chain account this arm trades from; null is the legacy operator-key arm. */
+  accountId: z.uuid().nullable(),
 }
 
 export const ARM_PATCH_SCHEMA = z.strictObject(shape).partial()

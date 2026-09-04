@@ -52,7 +52,7 @@ input, select, textarea { font: inherit; color: inherit; }
 .brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 800; letter-spacing: -0.02em; font-size: 15px; }
 .brand i { width: 9px; height: 9px; border-radius: 3px; background: linear-gradient(135deg, var(--cyan), var(--violet)); transform: rotate(45deg); }
 .brand .chain { font: 600 10px/1 var(--mono); color: var(--muted); padding: 4px 7px; border: 1px solid var(--line); border-radius: 999px; letter-spacing: .06em; }
-.nav { display: flex; gap: 2px; }
+.nav { display: flex; gap: 2px; min-width: 0; }
 .nav a { padding: 7px 11px; border-radius: 9px; font-weight: 600; font-size: 13px; color: var(--muted); transition: background .15s, color .15s; }
 .nav a:hover { color: var(--ink); background: var(--ghost-2); }
 .nav a.on { color: var(--ink); background: var(--ghost-3); }
@@ -350,6 +350,10 @@ kbd { font: 600 10px/1 var(--mono); padding: 3px 5px; border: 1px solid var(--li
 @media (max-width: 520px) {
   .wrap { padding: 0 12px 70px; }
   .top-in { padding: 8px 12px; gap: 8px; }
+  /* The nav scrolls inside its own track rather than widening the page. */
+  .nav { overflow-x: auto; scrollbar-width: none; }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav a { padding: 7px 9px; font-size: 12.5px; white-space: nowrap; }
   .hs-item { padding: 5px 8px; font-size: 10px; }
   .row2, .row3 { grid-template-columns: 1fr; }
   .stat-val { font-size: 17px; }

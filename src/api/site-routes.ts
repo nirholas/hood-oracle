@@ -8,6 +8,7 @@
  *   /app                    oracle board          web/dist/index.html
  *   /app/arm                arms                  web/dist/arm.html
  *   /app/positions          positions tape        web/dist/positions.html
+ *   /app/connect            wallet + arm accounts web/dist/connect.html
  *   /app/coin/:token        one launch            web/dist/coin.html
  *   /docs                   docs index            web/dist/docs/index.html
  *   /docs/:slug             one rendered doc      web/dist/docs/<slug>.html
@@ -25,6 +26,8 @@ export const PAGE_ROUTES: Readonly<Record<string, string>> = Object.freeze({
   '/app/arm': '/arm.html',
   '/app/arms': '/arm.html',
   '/app/positions': '/positions.html',
+  '/app/connect': '/connect.html',
+  '/app/accounts': '/connect.html',
   '/app/coin': '/coin.html',
   '/docs': '/docs/index.html',
   '/litepaper': '/docs/litepaper.html',

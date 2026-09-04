@@ -25,7 +25,7 @@ const REPO = 'https://github.com/nirholas/hood-oracle'
 /** Sidebar groups, in order. A doc not listed here lands under "More". */
 const GROUPS: { label: string; slugs: string[] }[] = [
   { label: 'Protocol', slugs: ['litepaper'] },
-  { label: 'Engine', slugs: ['architecture', 'oracle', 'guardrails', 'arming'] },
+  { label: 'Engine', slugs: ['architecture', 'oracle', 'guardrails', 'arming', 'multi-tenant'] },
   { label: 'Agents', slugs: ['mcp', 'sdk', 'x402'] },
   { label: 'Reference', slugs: ['api', 'contracts', 'deploy', 'site-build'] },
 ]

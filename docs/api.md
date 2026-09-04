@@ -3,10 +3,18 @@
 Base URL: `http://localhost:8080` locally, the Cloud Run URL in production.
 Every route is under `/api`. The dashboard is served from `/`.
 
-**Auth.** Reads are public. Every `POST`, `PATCH`, `PUT` and `DELETE` needs
-`Authorization: Bearer <OPERATOR_TOKEN>`. With no `OPERATOR_TOKEN` configured,
-writes answer `503 operator_token_unset` rather than opening up. A wrong token
-answers `401 unauthorized`.
+**Auth.** Reads are public. Writes take one of two credentials:
+
+- the **operator token**, `Authorization: Bearer <OPERATOR_TOKEN>`, which is
+  the admin path over everything. With no `OPERATOR_TOKEN` configured, writes
+  answer `503 operator_token_unset` rather than opening up; a wrong token
+  answers `401 unauthorized`.
+- a **wallet session** cookie from [`/api/auth`](#wallet-sign-in), which
+  authorizes only that wallet's own accounts and the arms bound to them.
+
+`/api/accounts/*` needs a session (or the operator token). Everything else
+that writes needs the operator token unless the arm it touches belongs to the
+session's accounts.
 
 **Wire format.** JSON. Wei values are decimal strings (`"10000000000000000"`),
 dates are ISO 8601, addresses are checksummed hex. Every error is:
@@ -48,11 +56,19 @@ rather than restarted. `200` when every check passes, `503` otherwise, with
 the failing reason spelled out.
 
 ```json
-{ "ok": true, "checks": { "db": { "ok": true, "detail": "database answered" }, "dataPath": { "ok": true, "detail": "sequencer feed connected" }, "model": { "ok": true, "detail": "model v3-... with 26 features" } }, "now": "..." }
+{ "ok": true, "checks": { "engine": { "ok": true, "detail": "engine running since ..." }, "db": { "ok": true, "detail": "database answered" }, "dataPath": { "ok": true, "detail": "sequencer feed connected" }, "model": { "ok": true, "detail": "model v3-... with 26 features" } }, "now": "..." }
 ```
 
+`engine` is the startup phase. The HTTP listener comes up before the engine
+does (see [architecture.md](architecture.md#process-shape)), so during a
+rollout this check reports `engine is still starting: attempt 2 of 6 last
+failed with ...` and the route answers 503 until the engine is running.
 `dataPath` passes when the sequencer feed is connected **or** the log
-watchers advanced the head block within the last 60 seconds.
+watchers advanced the head block within the last 60 seconds; it is not
+evaluated while the engine is still starting.
+
+Point a startup probe at this route and a liveness probe at `/api/health`:
+a throttled RPC then delays the rollout instead of failing it.
 
 ### `GET /api/metrics`
 
@@ -96,6 +112,121 @@ Engine health, model provenance and table counts.
 
 `model.source` is `bootstrap` until the first refit is promoted.
 
+## Wallet sign-in
+
+EIP-4361 (Sign-In With Ethereum). One signature proves an address; it moves no
+funds and approves no transaction. The browser holds an opaque HttpOnly
+cookie, never a token it could leak to a script. The walk-through with
+context is [multi-tenant.md](multi-tenant.md).
+
+### `GET /api/auth/nonce`
+
+Issues a single-use nonce and the pre-auth cookie it is bound to, plus
+everything needed to build the message.
+
+```json
+{ "nonce": "a1b2c3...", "expiresAt": "2026-09-04T07:10:00.000Z", "domain": "hood-oracle.example", "uri": "https://hood-oracle.example", "chainId": 4663, "statement": "Sign in to hood-oracle. This signature proves you control this address. It moves no funds and approves no transaction." }
+```
+
+### `POST /api/auth/verify`
+
+```bash
+curl -sS -b jar.txt -c jar.txt -X POST $HOOD/api/auth/verify -H 'content-type: application/json' \
+  -d '{ "message": "<the exact EIP-4361 string signed>", "signature": "0x..." }'
+```
+
+```json
+{ "address": "0xAbC...", "chainId": 4663, "expiresAt": "2026-09-11T06:00:00.000Z" }
+```
+
+The message is parsed positionally and strictly: unknown fields, a second
+`Nonce:` line hidden in the statement, a mismatched domain or URI host, a
+foreign chain id, or a stale `Issued At` are all `401`. EOA signatures verify
+directly, contract wallets through EIP-1271.
+
+### `GET /api/auth/me`
+
+`address` is `null` when nobody is signed in, which is how the dashboard
+decides whether to offer the connect flow.
+
+```json
+{ "address": "0xAbC...", "chainId": 4663, "expiresAt": "...", "operator": "0xEng...", "factory": "0xFac...", "accounts": [ { "id": "…", "address": "0xAcct...", "status": "active", "label": "main", "lastSyncedAt": "..." } ] }
+```
+
+### `POST /api/auth/logout`
+
+Revokes the session server-side and clears the cookie. `{ "ok": true, "revoked": true }`.
+
+## Accounts
+
+On-chain `HoodArmAccount` clones: the non-custodial path where a user's own
+funds trade under a policy the contract enforces. Every write here hands back
+**unsigned** calldata, because the server holds no owner key. Requires
+`HOOD_ARM_FACTORY`; without it every route answers `503`.
+
+### `GET /api/accounts`
+
+Every account the session's wallet owns, re-synced from the factory.
+
+```json
+{ "accounts": [ { "id": "…", "address": "0xAcct...", "ownerAddress": "0xAbC...", "status": "active", "policy": { "perTradeCapWei": "10000000000000000", "dailyBudgetWei": "100000000000000000", "maxOpenPositions": 3, "maxSlippageBps": 500, "cooldownSeconds": 60, "maxHoldSecondsHint": 1800, "minOracleScore": 56, "allowedRouter": "0xCaf...", "quoteToken": "0x0Bd..." }, "ethBalanceWei": "50000000000000000", "…": "…" } ], "factory": "0xFac...", "operator": "0xEng...", "chainId": 4663, "defaultPolicy": { "…": "…" } }
+```
+
+### `POST /api/accounts/prepare`
+
+Builds the factory call that clones an account. Send the returned `tx` from
+the owner's wallet; the body's `policy` is merged over the factory default, so
+a partial policy is always completed into a valid one.
+
+```bash
+curl -sS -b jar.txt -X POST $HOOD/api/accounts/prepare -H 'content-type: application/json' \
+  -d '{ "policy": { "perTradeCapWei": "10000000000000000", "dailyBudgetWei": "100000000000000000" } }'
+```
+
+```json
+{ "tx": { "to": "0xFac...", "data": "0x...", "value": "0", "chainId": 4663, "summary": "Create a hood-oracle arm account with a 0.01 ETH per-trade cap ..." }, "policy": { "…": "…" }, "operator": "0xEng...", "factory": "0xFac...", "note": "Sign this from 0xAbC...: that address becomes the account's owner ..." }
+```
+
+`503 operator_unavailable` when the server has no `TRADER_PRIVATE_KEY`: there
+would be no operator to hand the account to, and nothing could trade it.
+
+### `POST /api/accounts/register`
+
+Records an account from its create transaction. The server reads the receipt,
+decodes `AccountCreated`, and refuses a hash that created nothing or created
+someone else's account (`400 account_not_created`).
+
+```bash
+curl -sS -b jar.txt -X POST $HOOD/api/accounts/register -H 'content-type: application/json' \
+  -d '{ "txHash": "0x...", "label": "main" }'
+```
+
+### `GET /api/accounts/:address`
+
+The cached row, the live chain read, the arms bound to it, their positions and
+the realized record. `chain` is `null` with `chainError` set when the read
+failed, so a chain outage degrades the page instead of emptying it.
+
+```json
+{ "account": { "…": "…" }, "chain": { "owner": "0xAbC...", "operator": "0xEng...", "killed": false, "policy": { "…": "…" }, "spentTodayWei": "0", "remainingDailyBudgetWei": "100000000000000000", "cooldownRemainingSeconds": 0, "openPositionCount": 0, "feesAccruedWei": "0", "ethBalanceWei": "50000000000000000", "wethBalanceWei": "0", "readAt": "..." }, "chainError": null, "arms": [], "positions": [], "realized": { "closed": 0, "wins": 0, "realizedPnlWei": "0" } }
+```
+
+### `POST /api/accounts/:address/policy/prepare`
+
+Builds the `setPolicy` call. `immediate` is `true` when every field is at
+least as tight as the current policy; otherwise the account queues the change
+for an hour and `applyPolicy()` lands it.
+
+```json
+{ "tx": { "…": "…" }, "policy": { "…": "…" }, "immediate": false, "note": "At least one field takes on more risk, so the account queues it for one hour ..." }
+```
+
+### `POST /api/accounts/:address/refresh`
+
+Re-reads the account from the chain now instead of waiting for the 60s sweep.
+If its `operator` is no longer this engine, the row flips to `revoked` and
+every arm bound to it is disarmed in the same call.
+
 ## Arms
 
 An arm's wire shape is the `Arm` type in `src/types.ts` with wei as strings
@@ -103,6 +234,12 @@ and dates as ISO. Input accepts every knob in the README table; the wei
 fields also accept `perTradeEth` / `dailyBudgetEth` as numbers. `null` clears
 an optional filter, omitting a key leaves it alone, and an unknown key is a
 `400`.
+
+`accountId` names the on-chain account an arm trades from; `null` is the
+legacy arm that trades the server's own wallet. An arm created on a wallet
+session must set it, and its sizing is clamped to that account's on-chain
+policy on write (the response's `clamped` array says what was reduced and
+why). Rebinding an arm to `null` needs the operator token.
 
 ### `GET /api/arms`
 

@@ -25,6 +25,22 @@ export function extractBearer(header: string | undefined): string | null {
 }
 
 /**
+ * Sign-in routes authenticate themselves: a nonce, an EIP-4361 message and a
+ * signature ARE the credential, and requiring the operator token to log in
+ * would make wallet sign-in impossible.
+ */
+export const SELF_AUTHENTICATED = /^\/api\/auth(\/|$)/
+
+/**
+ * Routes that carry their own per-row ownership check, so a proven wallet
+ * session stands in for the operator token there and nowhere else. An arm or
+ * account write from a session still has to pass the handler's ownership
+ * check; a session can never reach the kill switch, a position close, or a
+ * legacy operator-key arm.
+ */
+export const WALLET_WRITABLE = /^\/api\/(arms|accounts)(\/|$)/
+
+/**
  * Operator gate for every write method under /api. Reads pass through.
  * With no OPERATOR_TOKEN configured, writes answer 503 rather than opening up:
  * an unauthenticated arm/kill surface is never the default.
@@ -32,6 +48,8 @@ export function extractBearer(header: string | undefined): string | null {
 export function operatorAuth(config: Config): MiddlewareHandler {
   return async (c, next) => {
     if (!WRITE_METHODS.has(c.req.method)) return next()
+    if (SELF_AUTHENTICATED.test(c.req.path)) return next()
+    if (c.get('walletSession') && WALLET_WRITABLE.test(c.req.path)) return next()
     if (!config.operatorToken) throw new ApiError(503, 'operator_token_unset', OPERATOR_TOKEN_UNSET_MESSAGE)
     const presented = extractBearer(c.req.header('authorization'))
     if (!presented || !safeEqual(presented, config.operatorToken)) {

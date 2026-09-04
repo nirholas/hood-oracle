@@ -20,7 +20,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "node --env-file-if-exists=.env --import tsx --watch src/index.ts",
     "dev:web": "vite --config web/vite.config.ts",
     "build": "npm run build:web && npm run build:server && npm run build:sdk",
     "build:server": "tsc -p tsconfig.build.json",
@@ -30,14 +30,14 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx src/db/migrate.ts",
-    "db:status": "tsx src/db/migrate.ts --status",
-    "oracle:backfill": "tsx scripts/backfill.ts",
-    "oracle:fit": "tsx scripts/fit.ts",
+    "db:migrate": "node --env-file-if-exists=.env --import tsx src/db/migrate.ts",
+    "db:status": "node --env-file-if-exists=.env --import tsx src/db/migrate.ts --status",
+    "oracle:backfill": "node --env-file-if-exists=.env --import tsx scripts/backfill.ts",
+    "oracle:fit": "node --env-file-if-exists=.env --import tsx scripts/fit.ts",
     "check:rules": "node scripts/check-rules.mjs",
     "build:sdk": "npm run build --workspace @hood-oracle/sdk",
     "sync:sdk-contract": "node scripts/sync-sdk-contract.mjs",
-    "mcp": "tsx src/mcp/stdio.ts",
+    "mcp": "node --env-file-if-exists=.env --import tsx src/mcp/stdio.ts",
     "contracts:build": "forge build --root contracts",
     "contracts:test": "forge test --root contracts"
   },

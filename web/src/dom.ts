@@ -82,16 +82,45 @@ const toastHost = (): HTMLElement => {
   return host
 }
 
-export function toast(message: string, kind: 'ok' | 'bad' | 'warn' | 'info' = 'info', ms = 4200): void {
+/** At most this many toasts are on screen; the oldest goes when a new one arrives. */
+const MAX_TOASTS = 4
+const toastTimers = new WeakMap<HTMLElement, number>()
+
+function dismissToast(el: HTMLElement, ms: number): void {
+  const existing = toastTimers.get(el)
+  if (existing != null) clearTimeout(existing)
+  toastTimers.set(
+    el,
+    window.setTimeout(() => {
+      el.style.transition = 'opacity .25s'
+      el.style.opacity = '0'
+      setTimeout(() => el.remove(), 260)
+    }, ms),
+  )
+}
+
+/**
+ * A toast. `key` collapses repeats: a recurring event (a watcher retrying, a
+ * feed reconnecting) updates the toast it already has instead of stacking a
+ * new one over the page, which is what a failing RPC used to do.
+ */
+export function toast(message: string, kind: 'ok' | 'bad' | 'warn' | 'info' = 'info', ms = 4200, key?: string): void {
+  const host = toastHost()
+  const existing = key ? host.querySelector<HTMLElement>(`.toast[data-key="${CSS.escape(key)}"]`) : null
+  if (existing) {
+    existing.className = `toast ${kind}`
+    existing.textContent = message
+    existing.style.opacity = ''
+    dismissToast(existing, ms)
+    return
+  }
   const el = document.createElement('div')
   el.className = `toast ${kind}`
   el.textContent = message
-  toastHost().appendChild(el)
-  setTimeout(() => {
-    el.style.transition = 'opacity .25s'
-    el.style.opacity = '0'
-    setTimeout(() => el.remove(), 260)
-  }, ms)
+  if (key) el.dataset.key = key
+  host.appendChild(el)
+  for (const stale of [...host.children].slice(0, -MAX_TOASTS)) stale.remove()
+  dismissToast(el, ms)
 }
 
 export async function copyText(text: string): Promise<boolean> {

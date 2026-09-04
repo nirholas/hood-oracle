@@ -4,8 +4,8 @@
  * rendering "undefined".
  */
 import type {
-  Arm, Decision, EngineHealth, FeatureSnapshot, FirewallAssessment, HoldoutMetrics, LaunchFeatures, LaunchRecord,
-  Launchpad, Head, OracleHit, OracleTier, Pillar, Position, Trade, Venue, EngineEvent, Address,
+  AccountPolicy, AccountStatus, Arm, Decision, EngineHealth, FeatureSnapshot, FirewallAssessment, HoldoutMetrics,
+  LaunchFeatures, LaunchRecord, Launchpad, Head, OracleHit, OracleTier, Pillar, Position, Trade, Venue, EngineEvent, Address,
 } from '../types.js'
 
 /** One stored oracle verdict (an `oracle_scores` row) in domain form. */
@@ -85,6 +85,8 @@ export interface StatusResponse {
   network: string
   chainId: number
   explorerUrl: string
+  /** The chain's public RPC, so a wallet can add the network without the operator's private endpoints. */
+  publicRpcUrl: string
   /** Every launchpad literal the intake can record, for filters and arm chips. */
   launchpads: Launchpad[]
   operatorTokenSet: boolean
@@ -225,7 +227,7 @@ export interface ReadyCheck {
 
 export interface ReadyResponse {
   ok: boolean
-  checks: { db: ReadyCheck; dataPath: ReadyCheck; model: ReadyCheck }
+  checks: { engine: ReadyCheck; db: ReadyCheck; dataPath: ReadyCheck; model: ReadyCheck }
   now: string
 }
 
@@ -255,4 +257,121 @@ export interface X402ScoreResponse {
   /** How many verdicts this token has received so far. */
   history: number
   paidAt: string
+}
+
+// ── wallet sign-in and on-chain arm accounts ─────────────────────────────────
+
+/**
+ * A transaction the server built for the owner's wallet to sign. The server
+ * never holds an owner key, so every account create and every policy change
+ * comes back as one of these and is signed in the browser.
+ */
+export interface UnsignedTx {
+  to: Address
+  data: `0x${string}`
+  value: string
+  chainId: number
+  /** What the user is about to sign, in one sentence, for the wallet confirmation screen. */
+  summary: string
+}
+
+/** JSON view of the on-chain `Policy` struct: wei as decimal strings. */
+export type AccountPolicyWire = Wire<AccountPolicy>
+
+/** One HoodArmAccount as the API renders it. `address` is the clone; `ownerAddress` withdraws. */
+export interface AccountWire {
+  id: string
+  address: Address
+  ownerAddress: Address
+  chainId: number
+  factoryAddress: Address
+  operatorAddress: Address | null
+  deployedTx: string | null
+  status: AccountStatus
+  label: string | null
+  policy: AccountPolicyWire | null
+  revokedReason: string | null
+  ethBalanceWei: string
+  wethBalanceWei: string
+  createdAt: string
+  lastSyncedAt: string | null
+}
+
+/** GET /api/auth/nonce: everything the browser needs to build the EIP-4361 message. */
+export interface NonceResponse {
+  nonce: string
+  expiresAt: string
+  domain: string
+  uri: string
+  chainId: number
+  statement: string
+}
+
+/** POST /api/auth/verify on a good signature. */
+export interface VerifyResponse {
+  address: Address
+  chainId: number
+  expiresAt: string
+}
+
+/** GET /api/auth/me. `address` is null when nobody is signed in. */
+export interface MeResponse {
+  address: Address | null
+  chainId: number
+  expiresAt?: string
+  operator: Address | null
+  factory: Address | null
+  accounts: { id: string; address: Address; status: AccountStatus; label: string | null; lastSyncedAt: string | null }[]
+}
+
+/** GET /api/accounts. */
+export interface AccountsResponse {
+  accounts: AccountWire[]
+  factory: Address
+  operator: Address | null
+  chainId: number
+  defaultPolicy: AccountPolicyWire | null
+}
+
+/** POST /api/accounts/prepare: the create transaction, unsigned. */
+export interface PrepareCreateResponse {
+  tx: UnsignedTx
+  policy: AccountPolicyWire
+  operator: Address
+  factory: Address
+  note: string
+}
+
+/** Live chain state of one account, read at request time. */
+export interface AccountChainWire {
+  owner: Address
+  operator: Address
+  killed: boolean
+  policy: AccountPolicyWire
+  spentTodayWei: string
+  remainingDailyBudgetWei: string
+  cooldownRemainingSeconds: number
+  openPositionCount: number
+  feesAccruedWei: string
+  ethBalanceWei: string
+  wethBalanceWei: string
+  readAt: string
+}
+
+/** GET /api/accounts/:address. `chain` is null when the read failed; `chainError` says why. */
+export interface AccountDetailResponse {
+  account: AccountWire
+  chain: AccountChainWire | null
+  chainError: string | null
+  arms: { id: string; label: string; enabled: boolean; mode: string; perTradeWei: string; dailyBudgetWei: string }[]
+  positions: PositionWire[]
+  realized: { closed: number; wins: number; realizedPnlWei: string }
+}
+
+/** POST /api/accounts/:address/policy/prepare. `immediate` is false when the change loosens a bound and has to queue. */
+export interface PreparePolicyResponse {
+  tx: UnsignedTx
+  policy: AccountPolicyWire
+  immediate: boolean
+  note: string
 }

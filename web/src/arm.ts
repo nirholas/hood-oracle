@@ -1,10 +1,10 @@
 /** Arms: list + editor for every Arm knob, arm/disarm/kill, 24h preview, ledger. */
-import type { ApiErrorBody, ArmListItem, ArmWire, ArmWriteResponse, FeedItem, FeedResponse, PositionListItem } from '../../src/api/contract'
+import type { ApiErrorBody, ArmListItem, ArmWire, ArmWriteResponse, FeedItem, FeedResponse, MeResponse, PositionListItem } from '../../src/api/contract'
 import type { Launchpad } from '../../src/types'
 import { ethToWei, weiToEth, weiToEthString } from '../../src/api/wei'
-import { api, errorMessage, write } from './api'
+import { api, errorMessage, setWalletSession, write } from './api'
 import { $, $$, debounce, h, segmented, setHtml, skeletonRows, stateBlock, switchControl, tierPill, toast } from './dom'
-import { ago, fmtEth, fmtSignedEth, fmtSignedPct, symbolOf } from './format'
+import { ago, fmtEth, fmtSignedEth, fmtSignedPct, shortAddr, symbolOf } from './format'
 import { mountShell } from './shell'
 
 const shell = mountShell({ page: 'arm' })
@@ -50,6 +50,8 @@ interface ArmPayload {
   autonomyTier: 'probation' | 'standard' | 'trusted' | 'autonomous'
   telegramChatId: string | null
   experimentGroup: string | null
+  /** The on-chain account this arm trades from; null means the server's own wallet. */
+  accountId: string | null
 }
 
 const DEFAULTS: ArmPayload = {
@@ -91,6 +93,7 @@ const DEFAULTS: ArmPayload = {
   autonomyTier: 'standard',
   telegramChatId: null,
   experimentGroup: null,
+  accountId: null,
 }
 
 /** Every launchpad the intake can record; refreshed from /api/status. */
@@ -119,6 +122,41 @@ const fields = {
   maxTop1: input('#fMaxTop1'), minMcap: input('#fMinMcap'), maxMcap: input('#fMaxMcap'), stop: input('#fStop'), tp: input('#fTp'), trail: input('#fTrail'),
   hold: input('#fHold'), decay: input('#fDecay'), initials: input('#fInitials'), moonbag: input('#fMoonbag'), llmConf: input('#fLlmConf'),
   telegram: input('#fTelegram'), group: input('#fGroup'),
+}
+const accountSel = $<HTMLSelectElement>('#fAccount')
+
+/**
+ * Funding sources this browser may pick: the server's own wallet (which needs
+ * the operator token) plus every on-chain account the signed-in wallet owns.
+ * Read from /api/auth/me, which also tells the API client that writes can go
+ * out on the session cookie instead of an operator token.
+ */
+async function loadAccountOptions(): Promise<void> {
+  const me = await api<MeResponse>('/api/auth/me')
+  const signedIn = Boolean(me.ok && me.data?.address)
+  setWalletSession(signedIn)
+  const accounts = signedIn ? me.data!.accounts : []
+  const keep = accountSel.value
+  setHtml(
+    accountSel,
+    h`<option value="">Server wallet (operator key)</option>${accounts.map(
+      (a) => h`<option value="${a.id}">${a.label || shortAddr(a.address)} (${a.status})</option>`,
+    )}`,
+  )
+  setAccountValue(keep || null)
+}
+
+/**
+ * Selects an account, keeping an option for an id this session cannot see
+ * (an operator looking at someone else's arm) so opening the arm never
+ * silently rebinds it to the server wallet.
+ */
+function setAccountValue(accountId: string | null): void {
+  const id = accountId ?? ''
+  if (id && ![...accountSel.options].some((o) => o.value === id)) {
+    accountSel.add(new Option(`Account ${id.slice(0, 8)}`, id))
+  }
+  accountSel.value = id
 }
 const modeCtl = segmented($('#modeSeg'), (v) => {
   if (v === 'live') {
@@ -241,6 +279,7 @@ function readForm(): ArmPayload {
     autonomyTier: autoCtl.get() as ArmPayload['autonomyTier'],
     telegramChatId: strOrNull(fields.telegram),
     experimentGroup: strOrNull(fields.group),
+    accountId: accountSel.value || null,
   }
 }
 
@@ -286,6 +325,7 @@ function fillForm(arm: ArmWire | null): void {
         autonomyTier: arm.autonomyTier,
         telegramChatId: arm.telegramChatId,
         experimentGroup: arm.experimentGroup,
+        accountId: arm.accountId,
       }
     : { ...DEFAULTS, launchpads: knownLaunchpads }
   fields.label.value = p.label
@@ -326,6 +366,7 @@ function fillForm(arm: ArmWire | null): void {
   autoCtl.set(p.autonomyTier)
   fields.telegram.value = p.telegramChatId ?? ''
   fields.group.value = p.experimentGroup ?? ''
+  setAccountValue(p.accountId)
   renderRangeOutputs()
   renderRisk()
   state.dirty = false
@@ -359,8 +400,14 @@ async function loadArms(quiet = false): Promise<void> {
   if (!quiet) {
     const params = new URLSearchParams(location.search)
     const wanted = params.get('id')
-    if (params.get('new') === '1' || (!state.arms.length && !wanted)) selectNew(false)
-    else selectArm(wanted && state.arms.some((a) => a.id === wanted) ? wanted : state.arms[0]?.id ?? null, false)
+    const account = params.get('account')
+    if (params.get('new') === '1' || account || (!state.arms.length && !wanted)) {
+      selectNew(false)
+      // Arrived from an account page: start the new arm bound to that account.
+      if (account) setAccountValue(account)
+    } else {
+      selectArm(wanted && state.arms.some((a) => a.id === wanted) ? wanted : state.arms[0]?.id ?? null, false)
+    }
   } else {
     renderState()
   }
@@ -784,6 +831,7 @@ shell.onStatus((st) => {
   renderState()
 })
 
+void loadAccountOptions()
 void loadArms()
 void loadFeed()
 setInterval(() => { if (!document.hidden) void loadFeed() }, 30_000)

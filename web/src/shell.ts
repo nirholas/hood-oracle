@@ -10,7 +10,7 @@ import { $, $$, h, maybe, setHtml, toast } from './dom'
 import { fmtEth, shortAddr } from './format'
 import { openStream, type EventKind, type StreamHandle } from './sse'
 
-export type PageId = 'oracle' | 'arm' | 'positions' | 'coin'
+export type PageId = 'oracle' | 'arm' | 'positions' | 'coin' | 'connect'
 
 const RISK_ACK_KEY = 'hood-oracle:risk-ack'
 const RISK_ACK_VERSION = 'v1'
@@ -40,6 +40,7 @@ export function mountShell(opts: { page: PageId; filterSelector?: string }): She
         <a href="/app" class="${opts.page === 'oracle' ? 'on' : ''}">Oracle</a>
         <a href="/app/arm" class="${opts.page === 'arm' ? 'on' : ''}">Arms</a>
         <a href="/app/positions" class="${opts.page === 'positions' ? 'on' : ''}">Positions</a>
+        <a href="/app/connect" class="${opts.page === 'connect' ? 'on' : ''}">Accounts</a>
         <a href="/docs" class="nav-docs">Docs</a>
       </nav>
       <div class="top-right">
@@ -90,10 +91,12 @@ export function mountShell(opts: { page: PageId; filterSelector?: string }): She
       if (set) for (const fn of set) fn(e)
       for (const fn of anyListeners) fn(e)
       if (e.kind === 'kill') {
-        toast(`Kill switch: ${e.reason}`, 'bad', 8_000)
+        toast(`Kill switch: ${e.reason}`, 'bad', 8_000, 'kill')
         void refreshStatus()
       }
-      if (e.kind === 'status' && e.level === 'error') toast(`${e.source}: ${e.message}`, 'bad', 6_000)
+      // Keyed by source: a watcher retrying against a throttled RPC updates one
+      // toast instead of burying the page under a dozen identical ones.
+      if (e.kind === 'status' && e.level === 'error') toast(`${e.source}: ${e.message}`, 'bad', 6_000, `status:${e.source}`)
     },
     onState(connected) {
       $('#hsFeedDot').className = 'dot ' + (connected ? (status?.engine.feed.connected ? 'live' : 'warn') : 'off')

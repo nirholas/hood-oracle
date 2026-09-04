@@ -34,6 +34,19 @@ export function onTokenChange(fn: (token: string | null) => void): () => void {
   return () => tokenListeners.delete(fn)
 }
 
+/**
+ * True once a wallet session cookie is known to exist. A signed-in wallet
+ * authenticates writes on its own accounts with that cookie, so `write` must
+ * not demand an operator token it will never need.
+ */
+let walletSession = false
+export function setWalletSession(active: boolean): void {
+  walletSession = active
+}
+export function hasWalletSession(): boolean {
+  return walletSession
+}
+
 /** The shell registers the key dialog here; `write` uses it on a 401. */
 let tokenPrompt: ((reason: string) => Promise<boolean>) | null = null
 export function setTokenPrompt(fn: (reason: string) => Promise<boolean>): void {
@@ -97,12 +110,13 @@ export async function api<T>(path: string, init: ApiInit = {}): Promise<ApiResul
 }
 
 /**
- * Authenticated write. Prompts for the operator key when none is stored or
- * the server rejects it, then retries once. A 503 (no OPERATOR_TOKEN on the
+ * Authenticated write. Prompts for the operator key when none is stored and
+ * no wallet session is signed in, or when the server rejects it, then retries
+ * once. A 503 (no OPERATOR_TOKEN on the
  * server) is returned as-is: the operator has to fix the server, not the key.
  */
 export async function write<T>(path: string, body?: unknown, method = 'POST'): Promise<ApiResult<T>> {
-  if (!getToken()) {
+  if (!getToken() && !walletSession) {
     const got = await requestToken('This action needs the operator token.')
     if (!got) return { ok: false, status: 0, data: null, error: { error: 'cancelled', message: 'Cancelled: no operator token entered.' } }
   }

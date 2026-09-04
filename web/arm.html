@@ -64,6 +64,10 @@
             <h3><span class="stepno">1</span> Identity and trigger</h3>
             <p class="sub">What this arm is called, how it executes, and what wakes it up.</p>
             <div class="field"><label for="fLabel">Label</label><input id="fLabel" type="text" maxlength="80" placeholder="e.g. NOXA prime only, small size" required /></div>
+            <div class="field"><label for="fAccount">Funding source</label>
+              <select id="fAccount" aria-describedby="fAccountHint"><option value="">Server wallet (operator key)</option></select>
+              <div class="field-hint" id="fAccountHint">An <a href="/app/connect">on-chain arm account</a> holds your own funds and enforces its caps in the contract, so this engine can trade it but never withdraw from it. The server wallet needs the operator token instead.</div>
+            </div>
             <div class="field"><label>Mode</label>
               <div class="seg" id="modeSeg" role="group" aria-label="Execution mode">
                 <button type="button" data-v="simulate" class="on">Simulate<small>logs every play, spends nothing</small></button>

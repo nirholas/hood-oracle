@@ -8,6 +8,7 @@
 import { Hono } from 'hono'
 import { sql } from 'drizzle-orm'
 import type { AppDeps } from '../deps.js'
+import { ENGINE_RUNNING } from '../deps.js'
 import { respond } from '../json.js'
 import { METRICS_CONTENT_TYPE, type Metrics } from '../metrics.js'
 import type { ReadyCheck, ReadyResponse } from '../contract.js'
@@ -15,12 +16,28 @@ import type { ReadyCheck, ReadyResponse } from '../contract.js'
 export const DATA_PATH_WINDOW_MS = 60_000
 
 export async function readiness(deps: AppDeps, metrics: Metrics): Promise<ReadyResponse> {
+  const startup = deps.engineStartup?.() ?? ENGINE_RUNNING
+  const running = startup.phase === 'running'
+  const engine: ReadyCheck = running
+    ? { ok: true, detail: `engine running since ${startup.since}` }
+    : startup.phase === 'starting'
+      ? {
+          ok: false,
+          detail: `engine is still starting: attempt ${startup.attempt} of ${startup.attempts}${startup.error ? ` last failed with ${startup.error}` : ''}. The API answers reads meanwhile; no launch is being scored yet.`,
+        }
+      : {
+          ok: false,
+          detail: `engine could not start after ${startup.attempt} attempts (${startup.error ?? 'unknown error'}); it keeps retrying in the background. No launch is being scored.`,
+        }
   const db = await deps.db
     .execute(sql`select 1 as ok`)
     .then(() => ({ ok: true, detail: 'database answered' }))
     .catch((err: unknown) => ({ ok: false, detail: `database ping failed: ${err instanceof Error ? err.message : String(err)}` }))
   const path = metrics.dataPathHealthy(DATA_PATH_WINDOW_MS)
-  const dataPath: ReadyCheck = path.ok
+  // Nothing to measure until the engine owns a feed and watchers; the engine check carries the reason.
+  const dataPath: ReadyCheck = !running
+    ? { ok: false, detail: 'not checked: the engine is not running yet' }
+    : path.ok
     ? { ok: true, detail: path.feedConnected ? 'sequencer feed connected' : `log watchers advanced the head block ${Math.round((path.headAdvancedAgoMs ?? 0) / 1000)}s ago` }
     : {
         ok: false,
@@ -35,7 +52,7 @@ export async function readiness(deps: AppDeps, metrics: Metrics): Promise<ReadyR
     prov.version && doc.features.length > 0
       ? { ok: true, detail: `model ${prov.version} with ${doc.features.length} features` }
       : { ok: false, detail: 'no oracle model is loaded' }
-  return { ok: db.ok && dataPath.ok && model.ok, checks: { db, dataPath, model }, now: new Date().toISOString() }
+  return { ok: engine.ok && db.ok && dataPath.ok && model.ok, checks: { engine, db, dataPath, model }, now: new Date().toISOString() }
 }
 
 export function metricsRoutes(deps: AppDeps, metrics: Metrics): Hono {

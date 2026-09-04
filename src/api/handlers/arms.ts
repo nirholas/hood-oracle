@@ -11,9 +11,14 @@ import type { ArmListItem, ArmSummary, ArmWire, ArmWriteResponse } from '../cont
 import { parseArmInput, assertArmable, defaultArm, toColumns, toDomainPatch } from '../arm-schema.js'
 import { clampToTier } from '../../guards/autonomy.js'
 import { rowToArm } from '../serialize.js'
-import { notFound } from '../errors.js'
+import { ApiError, notFound } from '../errors.js'
 import { parseUuid } from '../query.js'
 import type { Arm } from '../../types.js'
+import {
+  OPERATOR_CALLER, accountForArm, armVisibility, assertArmReadable, assertArmWritable, requireBindableAccount,
+  type ArmCaller,
+} from './accounts.js'
+import { armAgainstPolicyProblems, clampToPolicy } from '../../accounts/policy.js'
 
 interface SummaryRow {
   arm_id: string
@@ -85,64 +90,131 @@ async function writeArm(deps: AppDeps, id: string, patch: Record<string, unknown
   return rowToArm(row)
 }
 
-export async function listArms(deps: AppDeps): Promise<{ arms: ArmListItem[]; count: number }> {
-  const rows = await deps.db.select().from(schema.arms).orderBy(schema.arms.createdAt)
+/**
+ * Pull an arm patch inside the on-chain policy of the account it trades from,
+ * and report every clamp with the limit that caused it. A legacy arm has no
+ * account and is unaffected.
+ */
+async function clampToAccount(deps: AppDeps, arm: Arm, patch: Partial<Arm>, accountId: string | null): Promise<{ patch: Partial<Arm>; clamped: ArmWriteResponse['clamped'] }> {
+  const account = await accountForArm(deps, accountId)
+  if (!account?.policy) return { patch, clamped: [] }
+  const clamp = clampToPolicy(arm, patch, account.policy)
+  return {
+    patch: clamp.patch,
+    clamped: clamp.changes.map((c) => ({ knob: c.knob, from: c.from, to: c.to })),
+  }
+}
+
+/** Refuse to arm something the chain would refuse on every buy, naming the binding limit. */
+async function assertWithinAccountPolicy(deps: AppDeps, arm: Arm): Promise<void> {
+  const account = await accountForArm(deps, arm.accountId)
+  if (!account) return
+  if (account.status === 'revoked') {
+    throw new ApiError(409, 'account_revoked', account.revokedReason ?? `Account ${account.accountAddress} no longer names this engine as its operator, so it cannot trade.`)
+  }
+  if (!account.policy) {
+    throw new ApiError(409, 'account_unsynced', `Account ${account.accountAddress} has never been read from the chain, so its limits are unknown. Refresh it (POST /api/accounts/${account.accountAddress}/refresh) and try again.`)
+  }
+  const problems = armAgainstPolicyProblems(arm, account.policy)
+  if (!problems.length) return
+  throw new ApiError(409, 'over_account_policy', problems.map((p) => p.message).join(' '), { problems, account: account.accountAddress })
+}
+
+export async function listArms(deps: AppDeps, caller: ArmCaller = OPERATOR_CALLER): Promise<{ arms: ArmListItem[]; count: number }> {
+  const visible = await armVisibility(deps, caller)
+  const rows = visible
+    ? await deps.db.select().from(schema.arms).where(visible).orderBy(schema.arms.createdAt)
+    : await deps.db.select().from(schema.arms).orderBy(schema.arms.createdAt)
   const arms = rows.map(rowToArm)
   const sums = await summaries(deps.db, arms.map((a) => a.id))
   return { arms: arms.map((a) => ({ ...wire(a), summary: sums.get(a.id) ?? EMPTY_SUMMARY })), count: arms.length }
 }
 
-export async function getArm(deps: AppDeps, rawId: string): Promise<{ arm: ArmListItem }> {
+export async function getArm(deps: AppDeps, rawId: string, caller: ArmCaller = OPERATOR_CALLER): Promise<{ arm: ArmListItem }> {
   const id = parseUuid(rawId, 'arm id')
   const arm = await loadArm(deps, id)
+  await assertArmReadable(deps, caller, arm)
   const sums = await summaries(deps.db, [id])
   return { arm: { ...wire(arm), summary: sums.get(id) ?? EMPTY_SUMMARY } }
 }
 
-export async function createArm(deps: AppDeps, body: unknown): Promise<ArmWriteResponse> {
+export async function createArm(deps: AppDeps, body: unknown, caller: ArmCaller = OPERATOR_CALLER): Promise<ArmWriteResponse> {
   const { db, engine, log } = deps
   const input = parseArmInput(body, 'create')
   const { enabled, ...columns } = input
   const network = columns.network ?? deps.config.network
+  // A wallet session may only create arms that trade its OWN money. Creating
+  // an arm on the server's hot wallet stays an operator-token action.
+  if (!caller.isOperator && !columns.accountId) {
+    throw new ApiError(
+      403,
+      'account_required',
+      'Creating an arm with a connected wallet needs an accountId: the on-chain account it trades from. Deploy one first (POST /api/accounts/prepare), or use the operator token to create an arm on the server wallet.',
+    )
+  }
+  if (columns.accountId) await requireBindableAccount(deps, caller, columns.accountId)
   // Operator writes stay inside the arm's earned autonomy bounds: a knob
   // outside the tier's range is pulled to the edge, a refused one dropped,
   // and both are reported back instead of being stored silently.
   const domain = toDomainPatch(columns)
   const clamp = clampToTier(defaultArm(network), domain, domain.autonomyTier ?? 'standard')
+  // ...and then inside the account's on-chain policy, which is the ceiling no
+  // server-side number can raise.
+  const bounded = await clampToAccount(deps, { ...defaultArm(network), ...clamp.patch }, clamp.patch, columns.accountId ?? null)
   const [inserted] = await db
     .insert(schema.arms)
-    .values({ ...(toColumns(clamp.patch) as typeof schema.arms.$inferInsert), label: input.label, network })
+    .values({ ...(toColumns(bounded.patch) as typeof schema.arms.$inferInsert), label: input.label, network })
     .returning()
   let arm = rowToArm(inserted)
   if (enabled) {
     assertArmable(arm, engine.health())
+    await assertWithinAccountPolicy(deps, arm)
     arm = await writeArm(deps, arm.id, { enabled: true, killSwitch: false })
   } else {
     await engine.refreshArms()
   }
-  log.info({ armId: arm.id, label: arm.label, mode: arm.mode, enabled: arm.enabled, clamped: clamp.clamped.length, refused: clamp.refused.length }, 'arm created')
-  return { arm: wire(arm), ...wireClamp(clamp) }
+  log.info({ armId: arm.id, label: arm.label, mode: arm.mode, enabled: arm.enabled, accountId: arm.accountId, clamped: clamp.clamped.length + bounded.clamped.length, refused: clamp.refused.length }, 'arm created')
+  const wired = wireClamp(clamp)
+  return { arm: wire(arm), clamped: [...wired.clamped, ...bounded.clamped], refused: wired.refused }
 }
 
-export async function patchArm(deps: AppDeps, rawId: string, body: unknown): Promise<ArmWriteResponse> {
+export async function patchArm(deps: AppDeps, rawId: string, body: unknown, caller: ArmCaller = OPERATOR_CALLER): Promise<ArmWriteResponse> {
   const id = parseUuid(rawId, 'arm id')
   const input = parseArmInput(body, 'patch')
   const current = await loadArm(deps, id)
+  await assertArmWritable(deps, caller, current)
+  if (input.accountId !== undefined && input.accountId !== current.accountId) {
+    if (input.accountId === null && !caller.isOperator) {
+      throw new ApiError(
+        403,
+        'operator_only',
+        'Unbinding an arm from its account would make it trade the server\'s wallet, which only the operator token can do. Delete the arm instead, or point it at another account you own.',
+      )
+    }
+    if (input.accountId) await requireBindableAccount(deps, caller, input.accountId)
+  }
   const domain = toDomainPatch(input)
   const clamp = clampToTier(current, domain, domain.autonomyTier ?? current.autonomyTier)
-  const merged: Arm = { ...current, ...clamp.patch }
+  const nextAccountId = clamp.patch.accountId !== undefined ? clamp.patch.accountId : current.accountId
+  const bounded = await clampToAccount(deps, current, clamp.patch, nextAccountId)
+  const merged: Arm = { ...current, ...bounded.patch }
   // An arm that ends up enabled after this write must still clear the gate:
   // patching the stop loss to 0 on a live arm is refused, not silently stored.
-  if (merged.enabled) assertArmable(merged, deps.engine.health())
-  const patch: Record<string, unknown> = toColumns(clamp.patch)
-  if (clamp.patch.enabled === true && !current.enabled) patch.killSwitch = false
+  if (merged.enabled) {
+    assertArmable(merged, deps.engine.health())
+    await assertWithinAccountPolicy(deps, merged)
+  }
+  const patch: Record<string, unknown> = toColumns(bounded.patch)
+  if (bounded.patch.enabled === true && !current.enabled) patch.killSwitch = false
   const arm = await writeArm(deps, id, patch)
-  deps.log.info({ armId: id, fields: Object.keys(clamp.patch), clamped: clamp.clamped.length, refused: clamp.refused.length }, 'arm updated')
-  return { arm: wire(arm), ...wireClamp(clamp) }
+  deps.log.info({ armId: id, fields: Object.keys(bounded.patch), clamped: clamp.clamped.length + bounded.clamped.length, refused: clamp.refused.length }, 'arm updated')
+  const wired = wireClamp(clamp)
+  return { arm: wire(arm), clamped: [...wired.clamped, ...bounded.clamped], refused: wired.refused }
 }
 
-export async function deleteArm(deps: AppDeps, rawId: string): Promise<{ ok: true; id: string }> {
+export async function deleteArm(deps: AppDeps, rawId: string, caller: ArmCaller = OPERATOR_CALLER): Promise<{ ok: true; id: string }> {
   const id = parseUuid(rawId, 'arm id')
+  await assertArmWritable(deps, caller, await loadArm(deps, id))
   const [deleted] = await deps.db.delete(schema.arms).where(eq(schema.arms.id, id)).returning({ id: schema.arms.id })
   if (!deleted) throw notFound(`arm ${id}`)
   await deps.engine.refreshArms()
@@ -151,26 +223,28 @@ export async function deleteArm(deps: AppDeps, rawId: string): Promise<{ ok: tru
 }
 
 /** Enable an arm. Runs the armability gate (stop loss, sizing, live wallet). */
-export async function enableArm(deps: AppDeps, rawId: string): Promise<{ arm: ArmWire }> {
+export async function enableArm(deps: AppDeps, rawId: string, caller: ArmCaller = OPERATOR_CALLER): Promise<{ arm: ArmWire }> {
   const id = parseUuid(rawId, 'arm id')
   const current = await loadArm(deps, id)
+  await assertArmWritable(deps, caller, current)
   assertArmable(current, deps.engine.health())
+  await assertWithinAccountPolicy(deps, current)
   const arm = await writeArm(deps, id, { enabled: true, killSwitch: false })
   deps.log.info({ armId: id, mode: arm.mode }, 'arm armed')
   return { arm: wire(arm) }
 }
 
-export async function disableArm(deps: AppDeps, rawId: string): Promise<{ arm: ArmWire }> {
+export async function disableArm(deps: AppDeps, rawId: string, caller: ArmCaller = OPERATOR_CALLER): Promise<{ arm: ArmWire }> {
   const id = parseUuid(rawId, 'arm id')
-  await loadArm(deps, id)
+  await assertArmWritable(deps, caller, await loadArm(deps, id))
   const arm = await writeArm(deps, id, { enabled: false })
   deps.log.info({ armId: id }, 'arm disarmed')
   return { arm: wire(arm) }
 }
 
-export async function killArm(deps: AppDeps, rawId: string): Promise<{ arm: ArmWire }> {
+export async function killArm(deps: AppDeps, rawId: string, caller: ArmCaller = OPERATOR_CALLER): Promise<{ arm: ArmWire }> {
   const id = parseUuid(rawId, 'arm id')
-  await loadArm(deps, id)
+  await assertArmWritable(deps, caller, await loadArm(deps, id))
   const arm = await writeArm(deps, id, { enabled: false, killSwitch: true })
   deps.log.warn({ armId: id }, 'arm kill switch tripped')
   return { arm: wire(arm) }

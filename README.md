@@ -202,6 +202,16 @@ serializes as decimal strings, dates as ISO 8601, and every error is
 | `POST /api/arms/:id/arm` | Enable. Refused without a stop loss, a per-trade size, a budget that covers one trade, or (live) a live wallet. |
 | `POST /api/arms/:id/disarm` | Disable new buys; exits keep managing. |
 | `POST /api/arms/:id/kill` | Disable and set the arm's own kill switch. |
+| `GET /api/auth/nonce` | Issue an EIP-4361 nonce for wallet sign-in. |
+| `POST /api/auth/verify` | Verify the signed message and open a session. |
+| `GET /api/auth/me` | The signed-in address and the accounts it owns. |
+| `POST /api/auth/logout` | Revoke the session. |
+| `GET /api/accounts` | On-chain arm accounts this wallet owns, re-synced from the factory. |
+| `POST /api/accounts/prepare` | Unsigned calldata that clones an account under a policy. |
+| `POST /api/accounts/register` | Record an account from its create transaction. |
+| `GET /api/accounts/:address` | Cached row, live chain state, bound arms, realized record. |
+| `POST /api/accounts/:address/policy/prepare` | Unsigned `setPolicy` calldata; says whether it lands now or queues an hour. |
+| `POST /api/accounts/:address/refresh` | Re-read one account from the chain now. |
 | `GET /api/kill` | Global kill state and reason. |
 | `POST /api/kill` | Trip the global kill switch with a reason. |
 | `DELETE /api/kill` | Clear an API kill. Signal, file and env kills answer 409. |
@@ -217,7 +227,7 @@ serializes as decimal strings, dates as ISO 8601, and every error is
 | `GET /api/decisions` | The hash-chained journal, with a chain verification result. |
 | `GET /api/equity` | Realized, open and total equity curves per arm. |
 | `GET /api/stream` | SSE: every engine event, with a replay of the recent ring buffer on connect. |
-| `GET /api/ready` | Readiness (database, data path, model), distinct from liveness. 503 with reasons when not ready. |
+| `GET /api/ready` | Readiness (engine startup, database, data path, model), distinct from liveness. 503 with reasons while the engine is still starting. |
 | `GET /api/metrics` | Prometheus text: process, event-loop lag, HTTP by route, engine gauges and bus counters. |
 | `GET /api/x402/pricing` | Free: what a paid verdict costs (USDG on 4663) and how to pay. |
 | `GET /api/x402/score/:token` | Paid over x402: the latest verdict, features and firewall for one token. See [docs/x402.md](docs/x402.md). |
@@ -227,6 +237,22 @@ Every response carries security headers and an `X-Request-Id`; reads are
 rate-limited at 600 per minute per client and writes at 30, bodies are
 capped at 64KB, and CORS is same-origin unless `CORS_ORIGINS` opens it. The
 details are in [docs/api.md](docs/api.md#hardening).
+
+## Non-custodial accounts
+
+Anyone with a wallet can trade this engine without handing it a key. Sign in
+at `/app/connect` with one EIP-4361 signature, deploy a `HoodArmAccount` from
+your own wallet, fund it, and point an arm at it. The engine is only the
+account's **operator**: the contract lets it call `buy` and `sell` inside the
+per-trade cap, daily budget, cooldown, concurrency, slippage bound and oracle
+gate you wrote on chain, and lets it do nothing else. Withdrawal, policy
+changes, operator rotation and the kill switch stay with the owner. Loosening
+a bound queues for an hour; tightening one lands immediately; rotating the
+operator away disarms every arm bound to the account within a minute.
+
+Every buy is pre-flighted with an `eth_call` of the exact account call, so a
+policy refusal is journaled as `per_trade_cap` or `cooldown` instead of
+costing gas to learn. [docs/multi-tenant.md](docs/multi-tenant.md).
 
 ## Agents: MCP, SDK, x402
 
@@ -288,13 +314,14 @@ instead of a Geyser stream, and fit thresholds sized for a young chain.
 | `src/engine/` | Intake, observation window, scoring pipeline, executor, positions sweep, journal. |
 | `src/oracle/` | Features, conviction engine, fitter, bootstrap prior. |
 | `src/guards/` | Risk engine, kill switch, earned autonomy, optimizer. |
+| `src/accounts/` | Wallet sign-in (EIP-4361), sessions, the on-chain account registry, the policy codec. |
 | `src/api/` | Hono routes, shared handlers, middleware (headers, request ids, rate limit, CORS), metrics, operator auth, SSE, x402, static dashboard. |
 | `src/mcp/` | The MCP server: tools and resources over stdio and Streamable HTTP. |
 | `packages/sdk/` | `@hood-oracle/sdk`, the typed TypeScript client. |
 | `web/` | The Vite dashboard. |
 | `scripts/` | Backfill, fit and bootstrap-conversion CLIs, the house-rules checker. |
 | `tests/` | Vitest. `npm test`. |
-| `docs/` | Architecture, guardrails, oracle, arming, API, deploy, MCP, SDK, x402. |
+| `docs/` | Architecture, guardrails, oracle, arming, multi-tenant accounts, API, deploy, MCP, SDK, x402. |
 
 ## Scripts
 

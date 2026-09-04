@@ -64,6 +64,7 @@ export default defineConfig({
         index: resolve(root, 'index.html'),
         arm: resolve(root, 'arm.html'),
         positions: resolve(root, 'positions.html'),
+        connect: resolve(root, 'connect.html'),
         coin: resolve(root, 'coin.html'),
         docs: resolve(root, 'docs.html'),
         notFound: resolve(root, '404.html'),
