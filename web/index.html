@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Oracle board · hood-oracle</title>
-  <meta name="description" content="Live conviction scores for every NOXA and Odyssey launch on Robinhood Chain (4663)." />
+  <meta name="description" content="Live conviction scores for every launch on Robinhood Chain (4663), across all 17 launchpads the intake recognises." />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='7' y='7' width='18' height='18' rx='4' transform='rotate(45 16 16)' fill='%23cdd2e0'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="/src/styles.css" />
   <style>
@@ -19,7 +19,7 @@
       <div>
         <span class="eyebrow"><span class="dot live" id="heroDot"></span><span id="heroLive">Live · Robinhood Chain 4663</span></span>
         <h1>Conviction on every launch</h1>
-        <p>Every NOXA and Odyssey launch gets a 90-second feature snapshot and a score under the active model. Arms act on the score; this tape shows what the oracle saw and why.</p>
+        <p>Every launch on the chain gets a 90-second feature snapshot and a score under the active model, whichever launchpad minted it. Arms act on the score; this tape shows what the oracle saw and why.</p>
       </div>
       <div class="btn-row">
         <a class="btn sm" href="/app/arm">Arm a strategy</a>
@@ -31,7 +31,7 @@
 
     <div class="stats" id="stats">
       <div class="stat"><span>Scored · 24h</span><div class="stat-val sk" id="stScored">000</div><small id="stScoredSub">under the active model</small></div>
-      <div class="stat"><span>Launches · 24h</span><div class="stat-val sk" id="stLaunches">000</div><small>NOXA + Odyssey, first sight</small></div>
+      <div class="stat"><span>Launches · 24h</span><div class="stat-val sk" id="stLaunches">000</div><small>every launchpad, first sight</small></div>
       <div class="stat"><span>Prime + strong in view</span><div class="stat-val sk" id="stTop">00</div><small id="stTopSub">of the loaded tape</small></div>
       <div class="stat"><span>Open positions</span><div class="stat-val sk" id="stOpen">0</div><small id="stOpenSub">across every arm</small></div>
     </div>
@@ -51,7 +51,7 @@
             <button type="button" data-v="watch">Watch</button>
             <button type="button" data-v="avoid">Avoid</button>
           </div>
-          <div class="field" style="margin:0"><select id="lpSel" aria-label="Launchpad"><option value="all">All launchpads</option><option value="noxa">noxa</option><option value="odyssey">odyssey</option><option value="direct">direct</option></select></div>
+          <div class="field" style="margin:0"><select id="lpSel" aria-label="Launchpad"><option value="all">All launchpads</option></select></div>
           <div class="seg compact auto" id="sortSeg" role="group" aria-label="Sort">
             <button type="button" data-v="new" class="on">Newest</button>
             <button type="button" data-v="score">Score</button>

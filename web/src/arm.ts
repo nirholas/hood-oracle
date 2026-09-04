@@ -58,7 +58,9 @@ const DEFAULTS: ArmPayload = {
   label: '',
   mode: 'simulate',
   trigger: 'new_launch',
-  launchpads: ['noxa', 'odyssey'],
+  // Replaced by every launchpad the running engine reports; this is only the
+  // shape a form starts in before /api/status answers.
+  launchpads: [],
   perTradeEth: '0.01',
   dailyBudgetEth: '0.1',
   maxConcurrentPositions: 1,
@@ -97,7 +99,7 @@ const DEFAULTS: ArmPayload = {
 }
 
 /** Every launchpad the intake can record; refreshed from /api/status. */
-let knownLaunchpads: Launchpad[] = ['noxa', 'odyssey', 'direct']
+let knownLaunchpads: Launchpad[] = ['direct']
 
 const state = {
   arms: [] as ArmListItem[],
