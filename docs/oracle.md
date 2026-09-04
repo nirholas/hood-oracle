@@ -243,18 +243,43 @@ answer different questions; any surface showing one says which.
 npm run oracle:backfill -- --days 30
 ```
 
-Walks the NOXA and Odyssey factories back `--days` from the head block
-through the chain client, reconstructs a launch row and a 90-second feature
-snapshot for every token it finds from logs and traces, resolves labels for
-everything old enough, and scores each one under the active model so the
-board is populated. Idempotent: a token already present is skipped. The
-snapshot's `missing` list is honest about what history cannot recover (holder
-graphs at a past block need an archive node). This is what makes the first
-refit possible on day one instead of a month in.
+Walks every launchpad in the intake registry back `--days` from the head
+block, plus the bare Uniswap v3 `PoolCreated` and v4 `Initialize` events that
+pair a fresh token with WETH, USDG or ETH, reconstructs a launch row and a
+90-second feature snapshot for every token it finds, resolves labels for
+everything past the 24-hour horizon, and scores each one under the active
+model so the board is populated. Idempotent: a token that already carries a
+feature row is skipped and a launch that already has an outcome is not
+re-labeled, so an interrupted run resumes where it stopped. The snapshot's
+`missing` list is honest about what history cannot recover (holder graphs at a
+past block need an archive node, and the public gateway does not serve
+historical nonces at all). This is what makes the first refit possible on day
+one instead of a month in.
+
+Useful flags: `--no-scan` skips discovery and only fills in features and
+labels for launches already in the database, `--no-labels` does the opposite,
+and `--from-block N --to-block M` replaces the `--days` window.
+
+**Budget real time for it.** Each label costs one `eth_getLogs` over the
+token's whole 24-hour horizon plus one liquidity `eth_call`, and the public
+Robinhood Chain gateway meters execution calls separately from cheap reads:
+once that budget is spent it answers 429 and the client waits out a 60-second
+window before continuing. A few hundred launches is minutes on an Alchemy
+accelerator endpoint and hours on the public gateway. Put an accelerator first
+in `RPC_URLS` before a large backfill ([deploy.md](deploy.md#3-the-rpc-alchemy-accelerator));
+the run is resumable either way, so an interrupted one costs nothing but the
+work it had already done.
 
 ```bash
 npm run oracle:fit
 ```
 
-Fits a candidate from the labeled rows in the database, prints the holdout
-report and the promotion verdict, and does not promote. Same code as the job.
+Runs one refit through exactly the code path the scheduled job uses: fits a
+candidate from the labeled rows, persists it with its promotion checks, and
+**promotes it if it clears the gate**. It is not a dry run. What it prints is
+what happened: `fitted`, `promoted`, the reason, the holdout metrics, and the
+active model version before and after.
+
+It refuses to fit at all below `MIN_TRAINING_ROWS` (400 rows carrying the
+current `LABEL_VERSION`) and says how many it found, which is the answer to
+"why did nothing happen on a fresh chain": label more history first.
