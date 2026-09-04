@@ -8,8 +8,9 @@
  * loads `hood402/client` on demand (an optional peer dependency).
  */
 import type {
-  ArmListItem, ArmWire, ArmWriteResponse, CalibrationResponse, CoinResponse, DecisionsResponse, EngineEventWire, EquityResponse, FeedResponse,
-  HealthResponse, ModelHistoryItem, ModelResponse, PositionListItem, PositionWire, ReadyResponse, ScoreWire, StatusResponse, TradeListItem, TradeWire,
+  AccountDetailResponse, AccountPolicyWire, AccountWire, ArmListItem, ArmWire, ArmWriteResponse, CalibrationResponse, CoinResponse,
+  DecisionsResponse, EngineEventWire, EquityResponse, FeedResponse, HealthResponse, ModelHistoryItem, ModelResponse, PositionListItem,
+  PositionWire, PreparePolicyResponse, ReadyResponse, ScoreWire, StatusResponse, TradeListItem, TradeWire,
   X402PricingResponse, X402ScoreResponse,
 } from './contract.js'
 import type { Launchpad, OracleTier, PositionStatus } from './types.js'
@@ -174,6 +175,30 @@ export class HoodOracleClient {
     enable: (id: string): Promise<{ arm: ArmWire }> => this.request('POST', `/api/arms/${encodeURIComponent(id)}/arm`),
     disable: (id: string): Promise<{ arm: ArmWire }> => this.request('POST', `/api/arms/${encodeURIComponent(id)}/disarm`),
     kill: (id: string): Promise<{ arm: ArmWire }> => this.request('POST', `/api/arms/${encodeURIComponent(id)}/kill`),
+  }
+
+  /**
+   * On-chain arm accounts, through the operator-token admin path.
+   *
+   * The routes that CREATE an account (`GET /api/accounts`,
+   * `POST /api/accounts/prepare`, `POST /api/accounts/register`) are bound to
+   * a wallet sign-in and are deliberately absent here: they need an EIP-4361
+   * session and an owner key to sign with, which a server-side client holding
+   * an operator token has neither of. Deploy an account from the dashboard at
+   * `/app/connect` (or any wallet), then operate it from here.
+   *
+   * `preparePolicy` returns UNSIGNED calldata, exactly as the HTTP route does.
+   * Nothing in this SDK can sign it: only the account's owner can.
+   */
+  readonly accounts = {
+    /** One account: the cached row, the live chain read, its arms and realized record. */
+    get: (address: string): Promise<AccountDetailResponse> => this.request('GET', `/api/accounts/${encodeURIComponent(address)}`),
+    /** Unsigned `setPolicy` calldata, and whether it lands now or queues for an hour. */
+    preparePolicy: (address: string, policy: Partial<AccountPolicyWire>): Promise<PreparePolicyResponse> =>
+      this.request('POST', `/api/accounts/${encodeURIComponent(address)}/policy/prepare`, { policy }),
+    /** Re-read the account from the chain now, instead of waiting for the 60s sweep. */
+    refresh: (address: string): Promise<{ account: AccountWire }> =>
+      this.request('POST', `/api/accounts/${encodeURIComponent(address)}/refresh`),
   }
 
   // ── kill switch ──

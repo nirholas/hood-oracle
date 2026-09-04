@@ -43,12 +43,40 @@ const hood = createClient({
 | `oracle.coin(token)` | `GET /api/oracle/coin/:token` | |
 | `oracle.model()` / `oracle.models(limit)` / `oracle.calibration()` | `GET /api/oracle/model` / `models` / `calibration` | |
 | `positions.list(q)` / `positions.close(id)` | `GET /api/positions`, `POST /api/positions/:id/close` | |
+| `accounts.get(address)` | `GET /api/accounts/:address` | on-chain account, live chain read, its arms |
+| `accounts.preparePolicy(address, policy)` | `POST /api/accounts/:address/policy/prepare` | returns UNSIGNED calldata; only the owner can sign it |
+| `accounts.refresh(address)` | `POST /api/accounts/:address/refresh` | re-read now instead of on the 60s sweep |
 | `trades(q)` / `decisions(q)` / `equity(q)` | `GET /api/trades` / `decisions` / `equity` | |
 | `x402.pricing()` | `GET /api/x402/pricing` | free |
 | `x402.score(token, signer)` | `GET /api/x402/score/:token` | pays the 402, see below |
 | `stream(opts)` | `GET /api/stream` or `/api/oracle/stream` | async iterator |
 | `waitForScore(token, opts)` | coin lookup + oracle stream | resolves on the verdict |
 | `request(method, path, body?)` / `raw(...)` | anything | auth and error mapping included |
+
+### Accounts, and what this SDK deliberately cannot do
+
+`accounts.*` reaches on-chain arm accounts through the operator token, which
+is the admin path. The three routes that CREATE an account (`GET
+/api/accounts`, `POST /api/accounts/prepare`, `POST /api/accounts/register`)
+are bound to an EIP-4361 wallet session and are not in this client: they need
+an owner key to sign with, and a server-side client holding an operator token
+has neither the session nor the key. Deploy an account from a wallet at
+`/app/connect`, then operate it from here.
+
+The same line runs through `preparePolicy`: it returns unsigned calldata and
+nothing in this SDK can sign it. That is the guarantee, not a limitation. See
+[multi-tenant.md](multi-tenant.md).
+
+```ts
+const { account, chain } = await hood.accounts.get('0xAcct…')
+console.log(account.status, chain?.remainingDailyBudgetWei)
+
+const { tx, immediate } = await hood.accounts.preparePolicy('0xAcct…', { perTradeCapWei: '10000000000000000' })
+console.log(immediate ? 'lands at once' : 'queues for an hour', tx.summary)
+```
+
+A server with no `HOOD_ARM_FACTORY` answers every one of these `503
+accounts_unavailable`, with the missing variable named in the message.
 
 Every non-2xx answer throws `HoodOracleError` with `status`, `code` (the
 server's `error`), `message`, `detail` and `requestId` (the `X-Request-Id`

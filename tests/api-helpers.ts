@@ -361,7 +361,10 @@ export async function createHarness(): Promise<Harness> {
   // Every in-process request shares one rate-limit bucket (there is no socket
   // to read a client address from), so the harness lifts the throttles; the
   // hardening suite builds its own apps with tight limits to test them.
-  const limits = { writesPerMinute: 100_000, readsPerMinute: 1_000_000 }
+  // The sign-in routes carry their own tighter limiter (20 reads, 10 writes a
+  // minute), which one shared in-process bucket would trip inside a single
+  // test file; the accounts suite signs in a dozen times on purpose.
+  const limits = { writesPerMinute: 100_000, readsPerMinute: 1_000_000, authReadsPerMinute: 100_000, authWritesPerMinute: 100_000 }
   const app = createApp({ config, db, log: silent, engine, model, bus, limits })
   const appWithoutToken = createApp({ config: { ...config, operatorToken: null }, db, log: silent, engine, model, bus, limits })
   return {

@@ -26,7 +26,7 @@ const silent = () => {
   return l
 }
 
-function appWith(overrides: { limits?: { writesPerMinute?: number; readsPerMinute?: number; bodyLimitBytes?: number }; trustProxy?: boolean; corsOrigins?: string[]; x402PayTo?: `0x${string}` | null }) {
+function appWith(overrides: { limits?: { writesPerMinute?: number; readsPerMinute?: number; bodyLimitBytes?: number; authReadsPerMinute?: number; authWritesPerMinute?: number }; trustProxy?: boolean; corsOrigins?: string[]; x402PayTo?: `0x${string}` | null }) {
   const config = {
     ...h.config,
     trustProxy: overrides.trustProxy ?? h.config.trustProxy,
@@ -102,6 +102,20 @@ describe('rate limiting', () => {
     expect((await app.request('/api/kill')).status).toBe(200)
     await app.request('/api/kill', { method: 'DELETE', headers: h.authHeaders })
     h.engine.resetKill()
+  })
+
+  it('rations sign-in harder than everything else, and on its own bucket', async () => {
+    // Nonces are cheap to ask for and expensive to be handed out forever: an
+    // unthrottled /api/auth/nonce is a free session-row writer for anyone.
+    const app = appWith({ limits: { authReadsPerMinute: 2, readsPerMinute: 1_000, writesPerMinute: 1_000 } })
+    expect((await app.request('/api/auth/nonce')).status).toBe(200)
+    expect((await app.request('/api/auth/nonce')).status).toBe(200)
+    const limited = await app.request('/api/auth/nonce')
+    expect(limited.status).toBe(429)
+    expect((await limited.json() as { error: string }).error).toBe('rate_limited')
+    // The generous bucket the rest of the API uses is untouched by it.
+    expect((await app.request('/api/kill')).status).toBe(200)
+    expect((await app.request('/api/status')).status).toBe(200)
   })
 
   it('honours X-Forwarded-For only when TRUST_PROXY is set', async () => {

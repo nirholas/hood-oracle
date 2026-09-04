@@ -71,6 +71,28 @@ describe('typed routes', () => {
     armIds.splice(armIds.indexOf(arm.id), 1)
   })
 
+  it('accounts: the operator path is typed and says what a server without a factory is missing', async () => {
+    const sdk = clientFor(h.config.operatorToken)
+    const address = syntheticAddress()
+    const missing = await sdk.accounts.get(address).catch((e: unknown) => e)
+    expect((missing as HoodOracleError).status).toBe(503)
+    expect((missing as HoodOracleError).code).toBe('accounts_unavailable')
+    expect((missing as HoodOracleError).message).toContain('HOOD_ARM_FACTORY')
+
+    const refresh = await sdk.accounts.refresh(address).catch((e: unknown) => e)
+    expect((refresh as HoodOracleError).status).toBe(503)
+    const policy = await sdk.accounts.preparePolicy(address, { perTradeCapWei: '10000000000000000' }).catch((e: unknown) => e)
+    expect((policy as HoodOracleError).status).toBe(503)
+
+    // A server with no factory answers the same way to everyone: whether
+    // HOOD_ARM_FACTORY is set is not a secret (GET /api/auth/me publishes it),
+    // and 503 before any ownership check leaks nothing about who owns what.
+    const anon = clientFor(null)
+    const denied = await anon.accounts.get(address).catch((e: unknown) => e)
+    expect((denied as HoodOracleError).status).toBe(503)
+    expect((denied as HoodOracleError).code).toBe('accounts_unavailable')
+  })
+
   it('kill switch, oracle, positions and the ledger', async () => {
     const sdk = clientFor(h.config.operatorToken)
     expect((await sdk.kill.trip('sdk test')).reason).toBe('operator: sdk test')
