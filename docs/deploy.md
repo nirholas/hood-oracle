@@ -127,6 +127,44 @@ gcloud run services update hood-oracle --region $REGION \
   --update-env-vars TELEGRAM_CHAT_ID=-1001234567890,MIN_WALLET_ETH=0.005
 ```
 
+### Hardening and x402 env
+
+All plain env vars (none are secrets), merged with `--update-env-vars`:
+
+| Var | Production value | Why |
+|---|---|---|
+| `TRUST_PROXY` | `1` | Cloud Run terminates TLS and forwards the client address in `X-Forwarded-For`; without this every caller shares one rate-limit bucket and x402 resource URLs are built as `http://`. |
+| `CORS_ORIGINS` | usually empty | The dashboard is same-origin. Add an origin only if another site must call the API from a browser; a `*` entry opens reads and never writes. |
+| `X402_PAY_TO` | an address you control | Enables `GET /api/x402/score/:token`; USDG payments land here. Unset keeps the route at 503. |
+| `X402_SCORE_PRICE_USDG` | `0.05` | Price per verdict in USDG. |
+| `X402_FACILITATOR_URL` | `https://facilitator.hood402.dev` | The hood402 facilitator that verifies and settles. Self-host from the hood402 repo's `facilitator/` for full control. |
+
+```bash
+gcloud run services update hood-oracle --region $REGION \
+  --update-env-vars TRUST_PROXY=1,X402_PAY_TO=0xYourAddress,X402_SCORE_PRICE_USDG=0.05
+```
+
+The rate limiter stores its buckets in process memory. With
+`--max-instances 1` that is the whole limit; if you ever run more than one
+instance, each enforces the limit on its own share of the traffic.
+
+### Probes
+
+`cloudbuild.yaml` relies on Cloud Run's default TCP startup probe, which
+passes as soon as the port opens. `GET /api/ready` is the readiness signal
+(database, data path, model) and `GET /api/health` is liveness; to make
+Cloud Run hold traffic until the engine is actually ready, add to the deploy
+step:
+
+```
+--startup-probe=httpGet.path=/api/ready,httpGet.port=8080,initialDelaySeconds=10,periodSeconds=5,failureThreshold=24
+--liveness-probe=httpGet.path=/api/health,httpGet.port=8080,periodSeconds=30
+```
+
+`/api/ready` answers 503 while the sequencer feed is disconnected and the
+log watchers have not advanced the head block within 60 seconds, so a boot
+against an unreachable RPC never receives traffic.
+
 ## 3. The RPC: Alchemy accelerator
 
 The single biggest fill-latency win. The public

@@ -358,8 +358,12 @@ export async function createHarness(): Promise<Harness> {
   await engine.start()
   const silent = log.child({ test: true })
   silent.level = 'silent'
-  const app = createApp({ config, db, log: silent, engine, model, bus })
-  const appWithoutToken = createApp({ config: { ...config, operatorToken: null }, db, log: silent, engine, model, bus })
+  // Every in-process request shares one rate-limit bucket (there is no socket
+  // to read a client address from), so the harness lifts the throttles; the
+  // hardening suite builds its own apps with tight limits to test them.
+  const limits = { writesPerMinute: 100_000, readsPerMinute: 1_000_000 }
+  const app = createApp({ config, db, log: silent, engine, model, bus, limits })
+  const appWithoutToken = createApp({ config: { ...config, operatorToken: null }, db, log: silent, engine, model, bus, limits })
   return {
     config,
     db,

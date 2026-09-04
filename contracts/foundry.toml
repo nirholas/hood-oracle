@@ -1,3 +1,7 @@
+# hood-oracle on-chain arm. Build: `forge build`; tests: `forge test`; the
+# fork test needs network access to Robinhood Chain (4663) and is excluded
+# from the `ci` profile. See README.md for every command.
+
 [profile.default]
 src = "src"
 test = "test"
@@ -9,6 +13,46 @@ evm_version = "cancun"
 optimizer = true
 optimizer_runs = 10_000
 via_ir = false
+bytecode_hash = "none"
+cbor_metadata = false
+fs_permissions = [{ access = "read", path = "./" }]
+remappings = [
+  "@openzeppelin/contracts/=dependencies/@openzeppelin-contracts-5.4.0/",
+  "forge-std/=dependencies/forge-std-1.10.0/src/",
+]
+
+[profile.default.fuzz]
+runs = 256
+seed = "0x484f4f44"
+
+[profile.default.invariant]
+runs = 64
+depth = 32
+
+# CI: no network, deterministic, more fuzz runs. The fork test contract is
+# named HoodArmForkTest and is skipped by the filter below.
+[profile.ci]
+no_match_contract = "Fork"
+verbosity = 2
+
+[profile.ci.fuzz]
+runs = 2048
+
+[lint]
+# Timelocks and the UTC-day budget compare block.timestamp on purpose; a
+# sequencer nudging it by seconds cannot defeat a one-hour or one-day bound.
+exclude_lints = ["block-timestamp"]
+ignore = ["test/**/*.sol", "script/**/*.sol"]
+
+[rpc_endpoints]
+robinhood = "https://rpc.mainnet.chain.robinhood.com"
+
+[etherscan]
+robinhood = { key = "", url = "https://robinhoodchain.blockscout.com/api", chain = 4663 }
 
 [dependencies]
 "@openzeppelin-contracts" = "5.4.0"
+forge-std = "1.10.0"
+
+[soldeer]
+remappings_generate = false

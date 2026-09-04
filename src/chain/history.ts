@@ -184,10 +184,12 @@ export async function resolvePoolSide(client: PublicClient, pool: Address, token
 /**
  * Decode a Uniswap v3 Swap log into a tape trade. amount0/amount1 are the
  * pool's deltas (positive = into the pool), so the launch token leaving the
- * pool is a buy. `trader` is the swap recipient (the router's msg.sender for
- * router swaps, since SwapRouter02 forwards the user as recipient).
+ * pool is a buy. The Swap event's `sender` is the router and its `recipient`
+ * is the user only on a buy (a sell's output goes to the router to unwrap),
+ * so the caller supplies the transaction sender as `trader` when it has it;
+ * without it, the recipient stands in for buys and the sender for sells.
  */
-export function swapLogToTrade(log: RawLog, source: PoolTradeSource, at: number, ethUsd: number | null = null): TapeTrade | null {
+export function swapLogToTrade(log: RawLog, source: PoolTradeSource, at: number, ethUsd: number | null = null, trader: Address | null = null): TapeTrade | null {
   let decoded
   try {
     decoded = decodeEventLog({ abi: uniswapV3PoolAbi, data: log.data, topics: log.topics, eventName: 'Swap' })
@@ -199,13 +201,13 @@ export function swapLogToTrade(log: RawLog, source: PoolTradeSource, at: number,
   const quoteDelta = source.tokenIsToken0 ? a.amount1 : a.amount0
   if (tokenDelta === 0n) return null
   const isBuy = tokenDelta < 0n
-  const trader = isBuy ? a.recipient : a.sender
+  const who = trader ?? (isBuy ? a.recipient : a.sender)
   return {
     block: log.blockNumber ?? 0n,
     txIndex: log.transactionIndex ?? 0,
     logIndex: log.logIndex ?? 0,
     at,
-    trader: getAddress(trader),
+    trader: getAddress(who),
     isBuy,
     tokenAmount: tokenDelta < 0n ? -tokenDelta : tokenDelta,
     quoteWei: quoteToWei(quoteDelta < 0n ? -quoteDelta : quoteDelta, source.quoteKind ?? 'eth', ethUsd),
@@ -301,13 +303,13 @@ export async function getTokenTrades(client: PublicClient, token: Address, sourc
       : await getLogsChunked(client, { address: source.factory, event: tradedEvent, args: { token }, fromBlock, toBlock }, opts)
   const [ts, senders] = await Promise.all([
     blockTimestamps(client, logs.map((l) => l.blockNumber ?? 0n)),
-    source.venue === 'v4' ? transactionSenders(client, logs.map((l) => l.transactionHash as Hash)) : Promise.resolve(new Map<string, Address>()),
+    source.venue === 'curve' ? Promise.resolve(new Map<string, Address>()) : transactionSenders(client, logs.map((l) => l.transactionHash as Hash)),
   ])
   const out: TapeTrade[] = []
   for (const log of logs) {
     const at = ts.get(log.blockNumber ?? 0n) ?? 0
     const t = source.venue === 'pool'
-      ? swapLogToTrade(log, source, at, ethUsd)
+      ? swapLogToTrade(log, source, at, ethUsd, senders.get((log.transactionHash as string).toLowerCase()) ?? null)
       : source.venue === 'v4'
         ? v4SwapLogToTrade(log, source, at, senders.get((log.transactionHash as string).toLowerCase()) ?? getAddress(log.address), ethUsd)
         : curveLogToTrade(log, at)

@@ -12,6 +12,7 @@ import { createEngine } from '../src/engine/index.js'
 import { probeRpcUrls } from '../src/chain/client.js'
 import { createModelStore } from '../src/oracle/model-store.js'
 import { log } from '../src/log.js'
+import { withLiveLock } from './live-lock.js'
 import type { EngineApi, EngineEvent } from '../src/types.js'
 
 let engine: EngineApi | null = null
@@ -50,14 +51,15 @@ afterAll(async () => {
 describe('engine boot', () => {
   it('starts, reports live health, and stops cleanly', async () => {
     if (!engine) return
-    await engine.start()
+    await withLiveLock(async () => {
+    await engine!.start()
     const deadline = Date.now() + 15_000
     while (Date.now() < deadline) {
-      const h = engine.health()
+      const h = engine!.health()
       if (h.headBlock != null && h.feed.connected && h.feed.lastSequence != null) break
       await new Promise((r) => setTimeout(r, 200))
     }
-    const h = engine.health()
+    const h = engine!.health()
     expect(h.chainId).toBe(4663)
     expect(h.network).toBe('mainnet')
     expect(h.headBlock).not.toBeNull()
@@ -67,13 +69,14 @@ describe('engine boot', () => {
     expect(h.killed).toBe(false)
     expect(h.model.version).toBeTruthy()
     expect(typeof h.arms.total).toBe('number')
-    expect(engine.lastVerdict('0x0000000000000000000000000000000000000001')).toBeNull()
-    engine.kill('api: boot test')
-    expect(engine.health().killed).toBe(true)
-    expect(engine.unkill()).toBe(true)
-    expect(engine.health().killed).toBe(false)
+    expect(engine!.lastVerdict('0x0000000000000000000000000000000000000001')).toBeNull()
+    engine!.kill('api: boot test')
+    expect(engine!.health().killed).toBe(true)
+    expect(engine!.unkill()).toBe(true)
+    expect(engine!.health().killed).toBe(false)
     expect(events.some((e) => e.kind === 'status' && e.source === 'engine')).toBe(true)
     expect(events.some((e) => e.kind === 'kill')).toBe(true)
     log.info({ health: { ...h, wallet: { ...h.wallet, ethWei: h.wallet.ethWei?.toString() ?? null } } }, 'engine health')
-  }, 60_000)
+    })
+  }, 300_000)
 })

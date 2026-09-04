@@ -5,9 +5,24 @@
  */
 import type {
   Arm, Decision, EngineHealth, FeatureSnapshot, FirewallAssessment, HoldoutMetrics, LaunchFeatures, LaunchRecord,
-  Launchpad, Head, OracleTier, Pillar, Position, Trade, Venue, EngineEvent,
+  Launchpad, Head, OracleHit, OracleTier, Pillar, Position, Trade, Venue, EngineEvent, Address,
 } from '../types.js'
-import type { ScoreRecord } from './serialize.js'
+
+/** One stored oracle verdict (an `oracle_scores` row) in domain form. */
+export interface ScoreRecord {
+  id: string
+  token: Address
+  score: number
+  tier: OracleTier
+  rugRisk: number
+  probabilities: Record<Head, number>
+  pillars: Record<Pillar, number>
+  hits: OracleHit[]
+  reasons: string[]
+  confidence: number
+  modelVersion: string
+  scoredAt: Date
+}
 
 /** JSON view of a domain type: bigint -> decimal string, Date -> ISO string. */
 export type Wire<T> = T extends bigint
@@ -200,4 +215,44 @@ export interface EquityPoint {
 
 export interface EquityResponse {
   series: { armId: string; armLabel: string; points: EquityPoint[] }[]
+}
+
+/** GET /api/ready. 200 when every check passes, else 503 with the failing reasons. */
+export interface ReadyCheck {
+  ok: boolean
+  detail: string
+}
+
+export interface ReadyResponse {
+  ok: boolean
+  checks: { db: ReadyCheck; dataPath: ReadyCheck; model: ReadyCheck }
+  now: string
+}
+
+/** GET /api/x402/pricing: how the paid score route is priced and paid. */
+export interface X402PricingResponse {
+  enabled: boolean
+  resource: string
+  method: 'GET'
+  price: { usdg: string; atomic: string; decimals: number }
+  network: { id: string; chainId: number }
+  asset: { symbol: 'USDG'; address: string; eip712: { name: string; version: string } }
+  scheme: 'exact'
+  x402Version: 1
+  payTo: string | null
+  facilitator: string
+  description: string
+  freeAlternative: string
+  howToPay: string
+}
+
+/** GET /api/x402/score/:token after a settled payment. */
+export interface X402ScoreResponse {
+  token: string
+  verdict: ScoreWire
+  features: SnapshotWire | null
+  firewall: FirewallWire | null
+  /** How many verdicts this token has received so far. */
+  history: number
+  paidAt: string
 }

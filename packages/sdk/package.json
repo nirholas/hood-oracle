@@ -1,0 +1,41 @@
+{
+  "name": "@hood-oracle/sdk",
+  "version": "0.1.0",
+  "description": "Typed TypeScript client for a hood-oracle engine: the Robinhood Chain (4663) launch oracle, arms, positions, the ledger, the SSE stream, and x402 pay-per-score.",
+  "license": "Apache-2.0",
+  "author": "nirholas (https://x.com/nichxbt)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nirholas/hood-oracle.git",
+    "directory": "packages/sdk"
+  },
+  "keywords": ["robinhood-chain", "x402", "oracle", "trading", "sdk", "sse", "usdg"],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": ["dist", "README.md"],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "prebuild": "node ../../scripts/sync-sdk-contract.mjs",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "peerDependencies": {
+    "hood402": "^0.1.1",
+    "viem": "^2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "hood402": { "optional": true },
+    "viem": { "optional": true }
+  }
+}

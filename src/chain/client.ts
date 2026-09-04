@@ -4,8 +4,8 @@
  * management and batching are decided exactly once.
  */
 import {
-  createPublicClient, createWalletClient, fallback, http, webSocket,
-  type Account, type Chain, type PublicClient, type Transport, type WalletClient,
+  createPublicClient, createWalletClient, custom, fallback, http, webSocket,
+  type Account, type Chain, type EIP1193RequestFn, type PublicClient, type Transport, type WalletClient,
 } from 'viem'
 import { privateKeyToAccount, nonceManager } from 'viem/accounts'
 import { robinhood, robinhoodTestnet } from 'viem/chains'
@@ -45,10 +45,61 @@ export interface ChainClient {
   addresses: ChainAddresses
 }
 
+/**
+ * JSON-RPC request batching stays OFF on purpose: under load the public RPC
+ * answers a batch with a single error body instead of an array, and viem then
+ * fails every request in that batch at once ("Cannot read properties of
+ * undefined (reading 'error')"). Multicall3 read batching is unaffected: it is
+ * one eth_call.
+ */
 const makeTransport = (url: string) =>
   url.startsWith('ws')
     ? webSocket(url, { timeout: 15_000, retryCount: 2, reconnect: true })
-    : http(url, { timeout: 20_000, retryCount: 2, batch: { batchSize: 100, wait: 8 } })
+    : throttled(http(url, { timeout: 20_000, retryCount: 2 }))
+
+/**
+ * Process-wide pacing for HTTP JSON-RPC: at most `MAX_IN_FLIGHT` requests at
+ * once and a short gap between dispatches. The public endpoint answers bursts
+ * with 429 and Cloudflare challenges; spreading the same requests over a few
+ * hundred milliseconds keeps them under its limit without changing what is
+ * asked. Live trading paths issue a handful of calls at a time and are not
+ * slowed by it; bulk history reads are.
+ */
+const MAX_IN_FLIGHT = 6
+const MIN_GAP_MS = 25
+let inFlight = 0
+let lastDispatch = 0
+const waiters: (() => void)[] = []
+
+async function acquire(): Promise<void> {
+  if (inFlight >= MAX_IN_FLIGHT) await new Promise<void>((resolve) => waiters.push(resolve))
+  inFlight++
+  const gap = lastDispatch + MIN_GAP_MS - Date.now()
+  if (gap > 0) await sleep(gap)
+  lastDispatch = Date.now()
+}
+
+function release(): void {
+  inFlight--
+  const next = waiters.shift()
+  if (next) next()
+}
+
+/** Wrap a viem transport so every request passes through the pacing gate. */
+function throttled(inner: Transport): Transport {
+  return (config) => {
+    const built = inner(config)
+    const request: EIP1193RequestFn = (async (args: Parameters<EIP1193RequestFn>[0], options?: Parameters<EIP1193RequestFn>[1]) => {
+      await acquire()
+      try {
+        return await built.request(args as never, options as never)
+      } finally {
+        release()
+      }
+    }) as EIP1193RequestFn
+    return custom({ request }, { key: built.config.key, name: built.config.name, retryCount: 0 })(config)
+  }
+}
 
 /**
  * Build the chain client from config. `rpcUrls` already ends with the public
@@ -99,7 +150,13 @@ export function createChainClient(config: Pick<Config, 'network' | 'rpcUrls' | '
 
 const RETRYABLE_CODES = new Set([-1, -32005, -32603, -32602, 429])
 const RETRYABLE_STATUS = new Set([408, 413, 429, 500, 502, 503, 504])
-const RETRYABLE_TEXT = /(fetch failed|socket hang up|econnreset|etimedout|econnrefused|eai_again|enotfound|timed out|timeout|rate limit|too many requests|service unavailable|bad gateway)/i
+/**
+ * Text that marks a server-side or transport condition worth retrying. The
+ * last group matters on Robinhood Chain: the public RPC sits behind
+ * Cloudflare and, under load, answers a JSON-RPC call with a "Just a moment"
+ * challenge page, which viem reports as "HTTP request failed".
+ */
+const RETRYABLE_TEXT = /(fetch failed|socket hang up|econnreset|etimedout|econnrefused|eai_again|enotfound|timed out|timeout|rate limit|too many requests|service unavailable|bad gateway|reading 'error'|unknown rpc error|http request failed|just a moment|cloudflare|unexpected token '<')/i
 
 export function isTransientRpcError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false
@@ -138,7 +195,7 @@ export interface RetryOptions {
 }
 
 /** Run an RPC read, retrying transient failures with exponential backoff and jitter. */
-export async function withRpcRetry<T>(fn: () => Promise<T>, { attempts = 4, baseDelayMs = 250, onRetry }: RetryOptions = {}): Promise<T> {
+export async function withRpcRetry<T>(fn: () => Promise<T>, { attempts = 8, baseDelayMs = 500, onRetry }: RetryOptions = {}): Promise<T> {
   let lastError: unknown
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
@@ -146,7 +203,7 @@ export async function withRpcRetry<T>(fn: () => Promise<T>, { attempts = 4, base
     } catch (err) {
       lastError = err
       if (attempt === attempts || !isTransientRpcError(err)) throw err
-      const delayMs = Math.round(baseDelayMs * 2 ** (attempt - 1) * (1 + Math.random() * 0.4))
+      const delayMs = Math.min(15_000, Math.round(baseDelayMs * 2 ** (attempt - 1) * (1 + Math.random() * 0.4)))
       onRetry?.({ attempt, delayMs, error: err })
       await sleep(delayMs)
     }
@@ -176,23 +233,36 @@ export async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (it
   return out
 }
 
-/** Probe every configured RPC once so a dead rung shows up at boot, not mid-trade. */
-export async function probeRpcUrls(urls: string[]): Promise<{ url: string; ok: boolean; chainId: number | null; error: string | null; ms: number }[]> {
+/**
+ * Probe every configured RPC so a dead rung shows up at boot, not mid-trade.
+ * A challenge page, a 429 or a 5xx is retried with backoff (the public RPC
+ * sheds load that way); only a rung that never answers eth_chainId is dead.
+ */
+export async function probeRpcUrls(urls: string[], { attempts = 6, baseDelayMs = 400 }: { attempts?: number; baseDelayMs?: number } = {}): Promise<{ url: string; ok: boolean; chainId: number | null; error: string | null; ms: number }[]> {
   return Promise.all(urls.map(async (url) => {
     const t = Date.now()
     if (url.startsWith('ws')) return { url, ok: true, chainId: null, error: null, ms: 0 }
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }),
-        signal: AbortSignal.timeout(10_000),
-      })
-      const body = (await res.json()) as { result?: string; error?: { message?: string } }
-      if (body.error) return { url, ok: false, chainId: null, error: body.error.message ?? 'rpc error', ms: Date.now() - t }
-      return { url, ok: true, chainId: Number(body.result ?? 0), error: null, ms: Date.now() - t }
-    } catch (err) {
-      return { url, ok: false, chainId: null, error: errorText(err), ms: Date.now() - t }
+    let error = 'unreachable'
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }),
+          signal: AbortSignal.timeout(10_000),
+        })
+        const text = await res.text()
+        let body: { result?: string; error?: { message?: string } } | null = null
+        try { body = JSON.parse(text) as { result?: string; error?: { message?: string } } } catch { body = null }
+        if (body?.result) return { url, ok: true, chainId: Number(body.result), error: null, ms: Date.now() - t }
+        error = body?.error?.message ?? (text.includes('Just a moment') ? `cloudflare challenge (http ${res.status})` : `http ${res.status}: ${text.slice(0, 80)}`)
+        if (body?.error && !isTransientRpcError({ code: (body.error as { code?: number }).code, message: body.error.message })) break
+      } catch (err) {
+        error = errorText(err)
+        if (!isTransientRpcError(err) && (err as { name?: string }).name !== 'TimeoutError') break
+      }
+      if (attempt < attempts) await sleep(Math.round(baseDelayMs * 2 ** (attempt - 1) * (1 + Math.random() * 0.4)))
     }
+    return { url, ok: false, chainId: null, error, ms: Date.now() - t }
   }))
 }

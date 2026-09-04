@@ -20,6 +20,7 @@
  */
 import { existsSync } from 'node:fs'
 import { loadConfig } from '../src/config.js'
+import { holdEventLoop } from '../src/oracle/keepalive.js'
 import { createChainClient, errorText } from '../src/chain/client.js'
 import { Prices } from '../src/chain/prices.js'
 import { createDb } from '../src/db/client.js'
@@ -40,6 +41,7 @@ function arg(name: string): string | null {
 const flag = (name: string) => process.argv.includes(`--${name}`)
 
 async function main() {
+  const release = holdEventLoop()
   if (existsSync('.env')) process.loadEnvFile('.env')
   const config = loadConfig()
   const days = Number(arg('days') ?? 3)
@@ -148,6 +150,7 @@ async function main() {
     labeled, unlabelable, launchesOlderThanHorizon: eligibleForLabels, tookMin: Math.round((Date.now() - started) / 60_000),
   }, null, 2))
   await close()
+  release()
 }
 
 main().catch((err) => {

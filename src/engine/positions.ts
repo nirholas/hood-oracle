@@ -11,7 +11,7 @@ import { positions } from '../db/schema.js'
 import type { Arm, ExitReason, LaunchRecord, Position } from '../types.js'
 import type { EngineContext } from './context.js'
 import { decideLadderedExit, decideLiquidityDecay, moonbagFraction, updateStaleClock, type ExitParams } from './exits.js'
-import { rowToPosition, type Executor } from './executor.js'
+import { rowToPosition, v4PoolFromPositionMeta, type Executor } from './executor.js'
 
 export interface SweeperDeps {
   executor: Executor
@@ -81,7 +81,27 @@ export class PositionSweeper {
     const factory = typeof pos.meta.factory === 'string' ? getAddress(pos.meta.factory) : null
     let venue = pos.venue
     let value: bigint | null = null
-    if (venue === 'curve') {
+    if (venue === 'v4') {
+      const v4 = v4PoolFromPositionMeta(pos.meta, pos.token)
+      if (!v4) {
+        this.ctx.log.warn({ position: pos.id, token: pos.token }, 'v4 position without its pool key; cannot quote')
+        return
+      }
+      const q = await this.ctx.prices.v4QuoteSellWei(v4, pos.tokenAmount)
+      if (!q) {
+        // The pool cannot absorb the whole bag right now (a one-sided launch range with little quote in it).
+        // Past the arm's hold limit, exit in quarters rather than sit on the slot; otherwise hold and re-check.
+        const heldS = (Date.now() - pos.openedAt.getTime()) / 1000
+        if (arm.maxHoldSeconds > 0 && heldS >= arm.maxHoldSeconds) {
+          this.ctx.log.info({ position: pos.id, token: pos.token, heldS: Math.round(heldS) }, 'v4 pool cannot absorb the full bag past max hold; selling a quarter')
+          await this.deps.executor.sell({ position: pos, arm, reason: 'timeout', fraction: 0.25 })
+        } else {
+          this.ctx.log.warn({ position: pos.id, token: pos.token }, 'v4 pool cannot quote the full bag this sweep; holding')
+        }
+        return
+      }
+      value = q.wei
+    } else if (venue === 'curve') {
       const state = factory ? await this.ctx.prices.curveState(pos.token, factory) : null
       if (state && state.completed) {
         const launch = await this.deps.launchOf(pos.token)

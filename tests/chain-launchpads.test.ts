@@ -18,6 +18,7 @@ import { computeFeatures } from '../src/engine/features.js'
 import type { LaunchEvent } from '../src/chain/watchers.js'
 import { PUBLIC_RPC } from '../src/config.js'
 import { log } from '../src/log.js'
+import { withLiveLock } from './live-lock.js'
 import type { LaunchRecord } from '../src/types.js'
 
 describe('launchpad registry', () => {
@@ -71,7 +72,7 @@ const live = (fn: (c: ChainClient) => Promise<void>) => async () => {
     log.warn({ reason }, 'skipped')
     return
   }
-  await fn(chain)
+  await withLiveLock(() => fn(chain!))
 }
 
 describe('direct launch intake (live)', () => {
@@ -84,7 +85,7 @@ describe('direct launch intake (live)', () => {
     expect(intake.classifyPair({ dex: 'v3', token0: '0x0000000000000000000000000000000000000000', token1: t })).toBeNull()
     expect(intake.classifyPair({ dex: 'v3', token0: c.addresses.weth, token1: c.addresses.usdg })).toBeNull()
     expect(intake.classifyPair({ dex: 'v3', token0: t, token1: '0x2222222222222222222222222222222222222222' })).toBeNull()
-  }), 30_000)
+  }), 300_000)
 
   it('turns the newest 3 direct v3 launches of the last 50k blocks into complete momentum features', live(async (c) => {
     const head = await c.publicClient.getBlockNumber()
@@ -130,11 +131,21 @@ describe('direct launch intake (live)', () => {
       if (trades.length) {
         withTrades++
         for (const k of ['largest_buy_eth', 'avg_buy_eth', 'median_buy_eth', 'mc_eth_first_seen'] as const) expect(f[k], k).not.toBeNull()
-        expect(f.concentration_top1).not.toBeNull()
+        // Holder concentration exists exactly when a wallet outside the venues still holds at window end;
+        // buyers who round-tripped inside the window leave nothing to concentrate and the feature is missing, not fabricated.
+        const venues = new Set(['0x0000000000000000000000000000000000000000', '0x000000000000000000000000000000000000dead', e.pool!.toLowerCase(), e.factory.toLowerCase()])
+        const ledger = new Map<string, bigint>()
+        for (const t of transfers) {
+          if (t.from !== '0x0000000000000000000000000000000000000000') ledger.set(t.from.toLowerCase(), (ledger.get(t.from.toLowerCase()) ?? 0n) - t.value)
+          ledger.set(t.to.toLowerCase(), (ledger.get(t.to.toLowerCase()) ?? 0n) + t.value)
+        }
+        const heldOutside = [...ledger.entries()].some(([a, v]) => v > 0n && !venues.has(a))
+        if (heldOutside) expect(f.concentration_top1).not.toBeNull()
+        else expect(missing).toContain('concentration_top1')
       }
     })
     expect(withTrades).toBeGreaterThan(0)
-  }), 180_000)
+  }), 300_000)
 
   it('sees the Uniswap v4 PoolManager and classifies its recent initializations', live(async (c) => {
     const head = await c.publicClient.getBlockNumber()
@@ -151,5 +162,5 @@ describe('direct launch intake (live)', () => {
     }
     log.info({ inits: inits.length, quotePairs }, 'v4 initializations in the last 5k blocks')
     expect(inits.length).toBeGreaterThan(0)
-  }), 60_000)
+  }), 300_000)
 })

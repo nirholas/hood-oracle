@@ -22,7 +22,7 @@ const state = {
 const armSel = $<HTMLSelectElement>('#armSel')
 armSel.addEventListener('change', () => {
   state.arm = armSel.value
-  history.replaceState(null, '', state.arm ? `/positions?arm=${state.arm}` : '/positions')
+  history.replaceState(null, '', state.arm ? `/app/positions?arm=${state.arm}` : '/app/positions')
   void loadAll()
 })
 
@@ -110,7 +110,7 @@ function renderPositions(): void {
       compact: true,
       title: 'No open positions',
       body: state.arms.some((a) => a.enabled) ? 'Armed arms are watching the tape. The next launch that clears their filters opens a position here.' : 'No arm is armed. Arm one to start taking positions in simulate mode.',
-      href: state.arms.some((a) => a.enabled) ? undefined : { label: 'Arm a strategy', url: '/arm' },
+      href: state.arms.some((a) => a.enabled) ? undefined : { label: 'Arm a strategy', url: '/app/arm' },
     })
   } else {
     setHtml(openList, h`${open.map(openRow)}`)
@@ -126,7 +126,7 @@ function renderPositions(): void {
       const pct = p.realizedPnlPct
       const cls = pct == null ? '' : pct >= 0 ? 'up' : 'dn'
       const held = p.closedAt ? (Date.parse(p.closedAt) - Date.parse(p.openedAt)) / 1000 : null
-      return h`<tr><td><a href="/coin/${p.token}"><b>${symbolOf(p)}</b></a> <span class="badge ${p.mode === 'live' ? 'b-live' : 'b-sim'}">${p.mode}</span></td><td class="muted">${p.armLabel}</td><td class="r m">${fmtEth(p.entryWei, '')}</td><td class="r m ${cls}">${fmtSignedEth(p.realizedPnlWei)}</td><td class="r m ${cls}">${fmtSignedPct(pct)}</td><td><span class="badge ${p.exitReason === 'stop_loss' || p.exitReason === 'rug_detected' ? 'b-fail' : p.exitReason === 'take_profit' || p.exitReason === 'take_initials' ? 'b-pass' : ''}">${p.exitReason ?? p.status}</span></td><td class="r m muted">${fmtDuration(held)}</td><td class="r m muted" title="${p.closedAt ?? ''}">${ago(p.closedAt)} ago</td></tr>`
+      return h`<tr><td><a href="/app/coin/${p.token}"><b>${symbolOf(p)}</b></a> <span class="badge ${p.mode === 'live' ? 'b-live' : 'b-sim'}">${p.mode}</span></td><td class="muted">${p.armLabel}</td><td class="r m">${fmtEth(p.entryWei, '')}</td><td class="r m ${cls}">${fmtSignedEth(p.realizedPnlWei)}</td><td class="r m ${cls}">${fmtSignedPct(pct)}</td><td><span class="badge ${p.exitReason === 'stop_loss' || p.exitReason === 'rug_detected' ? 'b-fail' : p.exitReason === 'take_profit' || p.exitReason === 'take_initials' ? 'b-pass' : ''}">${p.exitReason ?? p.status}</span></td><td class="r m muted">${fmtDuration(held)}</td><td class="r m muted" title="${p.closedAt ?? ''}">${ago(p.closedAt)} ago</td></tr>`
     })}</tbody></table></div>`)
   }
 }
@@ -137,7 +137,7 @@ function openRow(p: PositionListItem): Raw {
   const peakPct = pnlPct(p.entryWei, p.peakValueWei)
   const closing = state.closing.has(p.id)
   return h`<div class="trow posrow" data-id="${p.id}">
-    <div class="sym"><a href="/coin/${p.token}">${symbolOf(p)}</a><span class="badge ${p.mode === 'live' ? 'b-live' : 'b-sim'}">${p.mode}</span>
+    <div class="sym"><a href="/app/coin/${p.token}">${symbolOf(p)}</a><span class="badge ${p.mode === 'live' ? 'b-live' : 'b-sim'}">${p.mode}</span>
       <div class="subline" style="width:100%"><span>${p.armLabel}</span><span class="badge b-${p.launchpad}">${p.launchpad}</span><span>${p.venue}</span>${p.oracleScoreAtEntry != null ? h`<span>score ${Math.round(p.oracleScoreAtEntry)} at entry</span>` : ''}${p.staleSince ? h`<span class="warn">stale mark</span>` : ''}${p.initialsRecovered ? h`<span class="up">initials out</span>` : ''}</div></div>
     <div class="num">${fmtEth(p.entryWei, '')}<small>entry Ξ</small></div>
     <div class="num hide-sm">${p.lastValueWei != null ? fmtEth(p.lastValueWei, '') : 'n/a'}<small>value Ξ</small></div>
@@ -203,7 +203,7 @@ function renderTrades(): void {
     const eth = isBuy ? t.amountIn : t.amountOut
     return h`<div class="trow traderow">
       <div><span class="badge ${isBuy ? 'b-buy' : 'b-sell'}">${t.side}</span></div>
-      <div class="sym"><a href="/coin/${t.token}">${t.symbol ?? t.token.slice(0, 8)}</a><span class="badge ${t.mode === 'live' ? 'b-live' : 'b-sim'}">${t.mode}</span>
+      <div class="sym"><a href="/app/coin/${t.token}">${t.symbol ?? t.token.slice(0, 8)}</a><span class="badge ${t.mode === 'live' ? 'b-live' : 'b-sim'}">${t.mode}</span>
         <div class="subline" style="width:100%"><span>${t.armLabel}</span><span>${t.venue}</span>${t.priceImpactPct != null ? h`<span>impact ${t.priceImpactPct.toFixed(2)}%</span>` : ''}${t.txHash === 'SIMULATED' ? h`<span>simulated</span>` : h`<a class="addr" href="${shell.explorerUrl('tx', t.txHash)}" target="_blank" rel="noopener">${shortHash(t.txHash)}</a>`}</div></div>
       <div class="num ${isBuy ? 'dn' : 'up'}">${isBuy ? '-' : '+'}${fmtEth(eth, '')}<small>Ξ</small></div>
       <div class="num">${t.gasWei != null ? fmtEth(t.gasWei, '') : 'n/a'}<small>gas Ξ</small></div>
@@ -233,7 +233,7 @@ function renderDecisions(): void {
     const detail = Object.entries(x.detail ?? {}).slice(0, 4).map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : String(v)}`).join('  ')
     return h`<div class="trow decrow" title="${x.entryHash}">
       <div><span class="kind k-${x.kind}">${x.kind}</span></div>
-      <div style="min-width:0"><div class="reason">${x.token ? h`<a href="/coin/${x.token}"><b>${x.token.slice(0, 10)}…</b></a> ` : ''}${x.reason}</div><div class="detail">${x.armLabel ? x.armLabel + ' · ' : ''}${detail}</div></div>
+      <div style="min-width:0"><div class="reason">${x.token ? h`<a href="/app/coin/${x.token}"><b>${x.token.slice(0, 10)}…</b></a> ` : ''}${x.reason}</div><div class="detail">${x.armLabel ? x.armLabel + ' · ' : ''}${detail}</div></div>
       <div class="when" title="${x.at}">${ago(x.at)}</div>
     </div>`
   })}`)

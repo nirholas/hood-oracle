@@ -11,6 +11,7 @@ import { type Address, formatUnits } from 'viem'
 import { odysseyBondingPoolAbi, odysseyCurveAbi, odysseyReflectionPoolAbi, quoterV2Abi, uniswapV3FactoryAbi, uniswapV3PoolAbi } from './abis.js'
 import { withRpcRetry } from './client.js'
 import type { ChainClient } from './client.js'
+import { V4, quoteUnitsToWei, weiToQuoteUnits, type V4Pool } from './v4.js'
 
 const Q96 = 2 ** 96
 const ZERO = '0x0000000000000000000000000000000000000000'
@@ -33,6 +34,8 @@ export interface CurveState {
 }
 
 export class Prices {
+  /** Uniswap v4 reads and quotes (quoter + StateView with fallbacks). */
+  readonly v4: V4
   private readonly poolInfo = new Map<string, PoolInfo>()
   private readonly curveFactory = new Map<string, Address>()
   private ethUsdCache: { value: number; at: number } | null = null
@@ -40,7 +43,37 @@ export class Prices {
   private referencePool: { pool: Address; at: number } | null = null
   private curveFeeBps: { value: bigint; at: number } | null = null
 
-  constructor(private readonly chain: ChainClient) {}
+  constructor(private readonly chain: ChainClient) {
+    this.v4 = new V4(chain)
+  }
+
+  /** Buy on a v4 pool with an ETH budget: the budget in the pool's quote units, and the executable token output. Null when the quote cannot be denominated or the quoter cannot fill it. */
+  async v4QuoteBuy(pool: V4Pool, budgetWei: bigint): Promise<{ amountOut: bigint; spendUnits: bigint; spendWei: bigint } | null> {
+    const ethUsd = pool.quoteSide === 'usdg' ? await this.ethUsd() : null
+    const units = weiToQuoteUnits(budgetWei, pool.quoteSide, ethUsd)
+    if (units == null || units <= 0n) return null
+    const q = await this.v4.quoteBuy(pool, units)
+    if (!q || q.amountOut <= 0n) return null
+    return { amountOut: q.amountOut, spendUnits: units, spendWei: budgetWei }
+  }
+
+  /** Executable ETH-wei proceeds of selling `amount` tokens on a v4 pool (USDG proceeds converted at the live ETH/USD). Null when the pool cannot absorb the sell. */
+  async v4QuoteSellWei(pool: V4Pool, amount: bigint): Promise<{ wei: bigint; units: bigint } | null> {
+    if (amount <= 0n) return { wei: 0n, units: 0n }
+    const units = await this.v4.quoteSell(pool, amount)
+    if (units == null) return null
+    const wei = quoteUnitsToWei(units, pool.quoteSide, pool.quoteSide === 'usdg' ? await this.ethUsd() : null)
+    return wei == null ? null : { wei, units }
+  }
+
+  /** Mid price of one whole token in ETH on a v4 pool (USDG quotes converted at the live ETH/USD). */
+  async v4SpotEth(pool: V4Pool, tokenDecimals: number): Promise<number | null> {
+    const inQuote = await this.v4.spotInQuote(pool, tokenDecimals)
+    if (inQuote == null) return null
+    if (pool.quoteSide !== 'usdg') return inQuote
+    const ethUsd = await this.ethUsd()
+    return ethUsd && ethUsd > 0 ? inQuote / ethUsd : null
+  }
 
   /** Pool immutables, cached forever (they never change). */
   async pool(pool: Address): Promise<PoolInfo> {

@@ -33,7 +33,7 @@ import ethEdges from './eth-edges.json' with { type: 'json' }
  * carry it, and `category` likewise from the launch row.
  */
 export interface TrainingRow {
-  features: Partial<LaunchFeatures> & Record<string, unknown>
+  features: Partial<LaunchFeatures> | Record<string, unknown>
   creator_launches: number | null
   creator_wins: number | null
   category: string | null
@@ -56,7 +56,10 @@ export const numOrNull = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null
 }
 
-const sig = (key: keyof LaunchFeatures) => (row: TrainingRow) => numOrNull(row.features?.[key])
+/** Read one raw feature value off a row, whichever shape the features blob has. */
+export const rawFeature = (row: TrainingRow, key: keyof LaunchFeatures): unknown => (row.features as Record<string, unknown> | undefined)?.[key]
+
+const sig = (key: keyof LaunchFeatures) => (row: TrainingRow) => numOrNull(rawFeature(row, key))
 
 const eth = (key: string): number[] => {
   const edges = (ethEdges.edges as Record<string, number[]>)[key]
@@ -117,7 +120,7 @@ export const FEATURES: readonly FeatureDef[] = Object.freeze([
   { key: 'dev_sell_eth', pillar: 'pedigree', categorical: false, get: sig('dev_sell_eth'), edges: eth('dev_sell_eth') },
   {
     key: 'dev_sold', pillar: 'pedigree', categorical: false, edges: [0.5],
-    get: (r) => (r.features?.dev_sold === true ? 1 : r.features?.dev_sold === false ? 0 : null),
+    get: (r) => (rawFeature(r, 'dev_sold') === true ? 1 : rawFeature(r, 'dev_sold') === false ? 0 : null),
   },
   // Fitted, not assumed: on the pump.fun corpus 2-4 proven wallets in the first
   // 90 seconds meant a 55% survivable-win rate against a 3% base. It belongs in
@@ -130,15 +133,15 @@ export const FEATURES: readonly FeatureDef[] = Object.freeze([
   {
     key: 'creator_record', pillar: 'pedigree', categorical: true, edges: [],
     get: (r) => creatorRecord(
-      numOrNull(r.creator_launches ?? r.features?.creator_launches),
-      numOrNull(r.creator_wins ?? r.features?.creator_wins),
+      numOrNull(r.creator_launches ?? rawFeature(r, 'creator_launches')),
+      numOrNull(r.creator_wins ?? rawFeature(r, 'creator_wins')),
     ),
   },
 
   // narrative: what the coin says it is
   {
     key: 'category', pillar: 'narrative', categorical: true, edges: [],
-    get: (r) => String(r.category ?? r.features?.category ?? 'unknown').toLowerCase(),
+    get: (r) => String(r.category ?? rawFeature(r, 'category') ?? 'unknown').toLowerCase(),
   },
   // How sure the classifier was. A confident 'meme' and a guessed 'meme' are
   // different observations; not in the prior, fitted on the first refit.

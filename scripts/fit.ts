@@ -9,6 +9,7 @@
  */
 import { existsSync } from 'node:fs'
 import { loadConfig } from '../src/config.js'
+import { holdEventLoop } from '../src/oracle/keepalive.js'
 import { errorText } from '../src/chain/client.js'
 import { createDb } from '../src/db/client.js'
 import { log } from '../src/log.js'
@@ -21,6 +22,7 @@ function arg(name: string): string | null {
 }
 
 async function main() {
+  const release = holdEventLoop()
   if (existsSync('.env')) process.loadEnvFile('.env')
   const config = loadConfig()
   const { db, close } = createDb(config.databaseUrl, { max: 2 })
@@ -48,6 +50,7 @@ async function main() {
     tookMs: result.tookMs,
   }, null, 2))
   await close()
+  release()
 }
 
 main().catch((err) => {

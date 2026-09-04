@@ -35,11 +35,12 @@ export function mountShell(opts: { page: PageId; filterSelector?: string }): She
   setHtml(
     header,
     h`<div class="top-in">
-      <a class="brand" href="/" aria-label="hood-oracle home"><i></i>hood-oracle <span class="chain" id="chainBadge">4663</span></a>
+      <a class="brand" href="/" aria-label="hood-oracle home" title="hood-oracle: the site"><i></i>hood-oracle <span class="chain" id="chainBadge">4663</span></a>
       <nav class="nav" aria-label="Sections">
-        <a href="/" class="${opts.page === 'oracle' ? 'on' : ''}">Oracle</a>
-        <a href="/arm" class="${opts.page === 'arm' ? 'on' : ''}">Arms</a>
-        <a href="/positions" class="${opts.page === 'positions' ? 'on' : ''}">Positions</a>
+        <a href="/app" class="${opts.page === 'oracle' ? 'on' : ''}">Oracle</a>
+        <a href="/app/arm" class="${opts.page === 'arm' ? 'on' : ''}">Arms</a>
+        <a href="/app/positions" class="${opts.page === 'positions' ? 'on' : ''}">Positions</a>
+        <a href="/docs" class="nav-docs">Docs</a>
       </nav>
       <div class="top-right">
         <div class="hs" id="healthStrip" aria-live="polite">

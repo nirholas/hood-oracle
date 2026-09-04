@@ -76,7 +76,7 @@ function pendingRows(): Raw[] {
     const lp = p.launch?.launchpad ?? 'noxa'
     if (state.launchpad !== 'all' && lp !== state.launchpad) continue
     const sym = p.launch ? symbolOf(p.launch) : shortAddr(p.token)
-    rows.push(h`<a class="trow feedrow pending" href="/coin/${p.token}">
+    rows.push(h`<a class="trow feedrow pending" href="/app/coin/${p.token}">
       <div class="sym"><span>${sym}</span><span class="name">${p.launch?.name ?? ''}</span>
         <div class="subline" style="width:100%"><span class="badge b-${lp}">${lp}</span><span>${p.snapshot ? 'features captured, scoring' : 'observing 90s window'}</span><span>${ago(p.at)} ago</span></div></div>
       <div><span class="tierpill tp-watch">pending</span></div>
@@ -96,7 +96,7 @@ function row(it: FeedItem): Raw {
   const net = f?.net_volume_eth
   const cat = f?.category
   const fresh = state.fresh.has(it.token.toLowerCase())
-  return h`<a class="trow feedrow ${fresh ? 'flash' : ''}" href="/coin/${it.token}" data-token="${it.token.toLowerCase()}">
+  return h`<a class="trow feedrow ${fresh ? 'flash' : ''}" href="/app/coin/${it.token}" data-token="${it.token.toLowerCase()}">
     <div class="sym"><span>${symbolOf(it)}</span><span class="name">${it.name && it.name !== it.symbol ? it.name : ''}</span>
       <div class="subline" style="width:100%">
         <span class="badge b-${it.launchpad}">${it.launchpad}</span>

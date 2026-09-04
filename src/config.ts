@@ -32,6 +32,16 @@ const schema = z.object({
   /** Disable the sequencer websocket (log polling only). */
   DISABLE_FEED: bool,
   WEB_DIST: z.string().default('web/dist'),
+  /** Honour X-Forwarded-For / X-Forwarded-Proto (set behind Cloud Run or any load balancer). */
+  TRUST_PROXY: bool,
+  /** Comma-separated origins allowed cross-origin. Empty means same-origin only. */
+  CORS_ORIGINS: z.string().optional().default(''),
+  /** Address that receives x402 payments for GET /api/x402/score/:token. Unset disables the paid route. */
+  X402_PAY_TO: z.string().optional(),
+  /** Price of one paid score in USDG (6 decimals max). */
+  X402_SCORE_PRICE_USDG: z.string().trim().regex(/^\d+(\.\d{1,6})?$/, 'expected a USDG amount such as 0.05').default('0.05'),
+  /** hood402 facilitator that verifies and settles USDG payments. */
+  X402_FACILITATOR_URL: z.string().url().default('https://facilitator.hood402.dev'),
 })
 
 export type Config = {
@@ -51,6 +61,9 @@ export type Config = {
   globalKill: boolean
   disableFeed: boolean
   webDist: string
+  trustProxy: boolean
+  corsOrigins: string[]
+  x402: { payTo: `0x${string}` | null; scorePriceUsdg: string; facilitatorUrl: string }
 }
 
 export const PUBLIC_RPC: Record<Network, string> = {
@@ -75,6 +88,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const extra = e.RPC_URLS.split(',').map((s) => s.trim()).filter(Boolean)
   const key = e.TRADER_PRIVATE_KEY?.trim()
   if (key && !/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error('TRADER_PRIVATE_KEY must be a 0x-prefixed 32-byte hex key')
+  const payTo = e.X402_PAY_TO?.trim()
+  if (payTo && !/^0x[0-9a-fA-F]{40}$/.test(payTo)) throw new Error('X402_PAY_TO must be a 0x-prefixed 20-byte address')
   return {
     databaseUrl: e.DATABASE_URL,
     network: e.HOOD_NETWORK,
@@ -92,5 +107,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     globalKill: e.GLOBAL_KILL,
     disableFeed: e.DISABLE_FEED,
     webDist: e.WEB_DIST,
+    trustProxy: e.TRUST_PROXY,
+    corsOrigins: e.CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean),
+    x402: { payTo: payTo ? (payTo as `0x${string}`) : null, scorePriceUsdg: e.X402_SCORE_PRICE_USDG, facilitatorUrl: e.X402_FACILITATOR_URL },
   }
 }

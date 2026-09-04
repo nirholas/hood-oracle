@@ -62,7 +62,7 @@ export async function launchRecordFor(deps: Pick<TapeDeps, 'history' | 'log'>, e
   let decimals = 18
   let totalSupply = 0n
   try {
-    const [n, s, d, t] = await withRpcRetry(() => client.multicall({
+    const [n, s, d, t] = await deps.history.patient('token meta', () => withRpcRetry(() => client.multicall({
       contracts: [
         { address: e.token, abi: erc20Abi, functionName: 'name' },
         { address: e.token, abi: erc20Abi, functionName: 'symbol' },
@@ -70,7 +70,7 @@ export async function launchRecordFor(deps: Pick<TapeDeps, 'history' | 'log'>, e
         { address: e.token, abi: erc20Abi, functionName: 'totalSupply' },
       ],
       allowFailure: true,
-    }))
+    })))
     if (n.status === 'success') name = n.result
     if (s.status === 'success') symbol = s.result
     if (d.status === 'success') decimals = d.result
@@ -99,7 +99,7 @@ export async function upsertLaunch(db: Db, launch: LaunchRecord): Promise<boolea
   await db.insert(schema.creatorStats).values({ creator: launch.creator.toLowerCase(), network: launch.network, launches: 1, lastLaunchAt: launch.firstSeenAt })
     .onConflictDoUpdate({
       target: [schema.creatorStats.creator, schema.creatorStats.network],
-      set: { launches: sql`${schema.creatorStats.launches} + 1`, lastLaunchAt: sql`greatest(${schema.creatorStats.lastLaunchAt}, ${launch.firstSeenAt})`, updatedAt: new Date() },
+      set: { launches: sql`${schema.creatorStats.launches} + 1`, lastLaunchAt: sql`greatest(${schema.creatorStats.lastLaunchAt}, ${launch.firstSeenAt.toISOString()}::timestamptz)`, updatedAt: new Date() },
     })
   return true
 }
@@ -118,7 +118,7 @@ export async function creatorPedigreeAt(db: Db, network: LaunchRecord['network']
            count(*) filter (where coalesce(o.realized_win, o.win))::int as wins
     from ${schema.launches} l
     left join ${schema.oracleOutcomes} o on o.token = l.token and o.network = l.network
-    where l.network = ${network} and l.creator = ${creator.toLowerCase()} and l.first_seen_at < ${before} and l.token <> ${token.toLowerCase()}
+    where l.network = ${network} and l.creator = ${creator.toLowerCase()} and l.first_seen_at < ${before.toISOString()}::timestamptz and l.token <> ${token.toLowerCase()}
   `) as unknown as { launches: number; wins: number }[]
   return { launches: row?.launches ?? 0, wins: row?.wins ?? 0 }
 }
@@ -134,7 +134,7 @@ export async function smartWalletsAt(db: Db, network: LaunchRecord['network'], b
     from ${schema.launches} l
     join ${schema.oracleOutcomes} o on o.token = l.token and o.network = l.network
     cross join lateral jsonb_array_elements_text(coalesce(l.metadata->'earlyBuyers', '[]'::jsonb)) as w(wallet)
-    where o.win = true and l.network = ${network} and l.first_seen_at < ${before}
+    where o.win = true and l.network = ${network} and l.first_seen_at < ${before.toISOString()}::timestamptz
     group by w.wallet having count(*) >= 2 limit 5000
   `) as unknown as { wallet: string }[]
   const out = new Set<Address>()
@@ -166,7 +166,7 @@ export async function reconstructTape(deps: TapeDeps, launch: LaunchRecord, opts
 
   const [tradesAll, transfersAll] = await Promise.all([
     history.trades(launch, launch.blockNumber, endBlock),
-    getTokenTransfers(history.chain.publicClient, launch.token, launch.blockNumber, endBlock, { chunk: 5_000n }),
+    history.patient('transfers', () => getTokenTransfers(history.chain.publicClient, launch.token, launch.blockNumber, endBlock, { chunk: 50_000n, maxChunk: 2_000_000n })),
   ])
   const windowEndMs = firstSeenMs + windowSeconds * 1000
   const trades = tradesAll.filter((t) => t.at <= windowEndMs)

@@ -22,6 +22,7 @@ import type { OracleJobsApi } from '../types.js'
 import { runCalibration } from './calibrate.js'
 import { createOracleHistory, type OracleHistory } from './history.js'
 import { bridgeRealized, resolveLabels } from './labels.js'
+import { holdEventLoop } from './keepalive.js'
 import type { ModelStore } from './model-store.js'
 import { runRefit } from './refit.js'
 
@@ -91,12 +92,14 @@ export function startOracleJobs(opts: OracleJobsOptions): OracleJobsApi & { hist
     if (running) return running
     const p = (async () => {
       const t = Date.now()
+      const release = holdEventLoop()
       try {
         await runners[job]()
         log.debug({ job, ms: Date.now() - t }, 'oracle jobs: finished')
       } catch (err) {
         log.error({ job, err: errorText(err) }, 'oracle jobs: failed')
       } finally {
+        release()
         delete inflight[job]
       }
     })()

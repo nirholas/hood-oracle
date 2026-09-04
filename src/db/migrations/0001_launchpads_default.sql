@@ -1,0 +1,1 @@
+ALTER TABLE "arms" ALTER COLUMN "launchpads" SET DEFAULT '["noxa","odyssey","direct","pons","rialto","dontblink","lunch","tokenselect","ramenpad","launcher-4a3e797b","launcher-4fba72a7","launcher-6e4910ea","rwa-launchpad","longlauncher","cashcat","forge","pair-v4"]'::jsonb;

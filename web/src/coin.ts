@@ -7,7 +7,7 @@ import { mountShell } from './shell'
 
 const shell = mountShell({ page: 'coin' })
 
-const token = decodeURIComponent(location.pathname.replace(/^\/coin\/?/, '')).trim()
+const token = decodeURIComponent(location.pathname.replace(/^\/app\/coin\/?/, '')).trim()
 const page = $('#page')
 let data: CoinResponse | null = null
 
@@ -21,7 +21,7 @@ const RATIO_KEYS = new Set(['snipe_ratio', 'concentration_top1', 'concentration_
 
 if (!/^0x[0-9a-fA-F]{40}$/.test(token)) {
   page.setAttribute('aria-busy', 'false')
-  stateBlock(page, { kind: 'error', title: 'That is not a token address', body: 'Open a launch from the tape, or use /coin/0x… with a 20-byte address.', href: { label: 'Back to the tape', url: '/' } })
+  stateBlock(page, { kind: 'error', title: 'That is not a token address', body: 'Open a launch from the tape, or use /app/coin/0x… with a 20-byte address.', href: { label: 'Back to the tape', url: '/app' } })
 } else {
   $('#crumbToken').textContent = shortAddr(token)
   void load()
@@ -35,7 +35,7 @@ async function load(): Promise<void> {
       stateBlock(page, {
         title: 'Not seen by the engine',
         body: 'This token has not been picked up as a NOXA or Odyssey launch on this network. The engine only scores launches it saw at first sight or backfilled from chain history.',
-        href: { label: 'Back to the tape', url: '/' },
+        href: { label: 'Back to the tape', url: '/app' },
       })
     } else {
       stateBlock(page, { kind: 'error', title: 'Could not load this launch', body: errorMessage(r), action: { label: 'Retry', onClick: () => void load() } })
@@ -75,7 +75,7 @@ function render(): void {
           ${link('website', meta.website)}${link('x', meta.twitter)}${link('telegram', meta.telegram)}
         </div>
       </div>
-      <div class="btn-row"><a class="btn sm" href="/arm">Arm on this</a><a class="btn sm ghost" href="/">Tape</a></div>
+      <div class="btn-row"><a class="btn sm" href="/app/arm">Arm on this</a><a class="btn sm ghost" href="/app">Tape</a></div>
     </div>
     ${d.outcome ? outcomeBanner(d) : ''}
     <div class="layout">

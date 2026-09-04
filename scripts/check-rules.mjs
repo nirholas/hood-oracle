@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
-const SKIP_DIRS = new Set(['node_modules', 'dist', '.git', '.vite', 'coverage', 'data'])
+const SKIP_DIRS = new Set(['node_modules', 'dist', '.git', '.vite', 'coverage', 'data', 'dependencies', 'out', 'cache', 'broadcast', 'lib'])
 const SKIP_FILES = new Set(['package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml'])
 const TEXT_EXT = new Set([
   '.ts', '.tsx', '.js', '.mjs', '.cjs', '.json', '.md', '.yaml', '.yml', '.sql', '.html', '.css',

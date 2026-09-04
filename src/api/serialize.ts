@@ -10,6 +10,9 @@ import type {
   FirewallCheck, FirewallVerdict, FirewallLevel, LaunchFeatures, LaunchRecord, Launchpad, Mode, Network, OracleHit, OracleTier,
   Position, PositionStatus, Side, Trade, Trigger, Venue, Head, Pillar,
 } from '../types.js'
+import type { ScoreRecord } from './contract.js'
+
+export type { ScoreRecord }
 
 type ArmRow = typeof schema.arms.$inferSelect
 type LaunchRow = typeof schema.launches.$inferSelect
@@ -98,21 +101,6 @@ export function rowToSnapshot(r: FeatureRow): FeatureSnapshot {
     features: r.features as unknown as LaunchFeatures,
     missing: r.missing,
   }
-}
-
-export interface ScoreRecord {
-  id: string
-  token: Address
-  score: number
-  tier: OracleTier
-  rugRisk: number
-  probabilities: Record<Head, number>
-  pillars: Record<Pillar, number>
-  hits: OracleHit[]
-  reasons: string[]
-  confidence: number
-  modelVersion: string
-  scoredAt: Date
 }
 
 export function rowToScore(r: ScoreRow): ScoreRecord {

@@ -40,6 +40,34 @@ curl -s $HOOD/api/health
 { "ok": true, "uptimeSeconds": 8123, "startedAt": "2026-09-03T10:00:00.000Z", "now": "2026-09-03T12:15:23.000Z" }
 ```
 
+### `GET /api/ready`
+
+Readiness, distinct from liveness: a live process that has lost its
+database, its data path, or its model should be taken out of rotation
+rather than restarted. `200` when every check passes, `503` otherwise, with
+the failing reason spelled out.
+
+```json
+{ "ok": true, "checks": { "db": { "ok": true, "detail": "database answered" }, "dataPath": { "ok": true, "detail": "sequencer feed connected" }, "model": { "ok": true, "detail": "model v3-... with 26 features" } }, "now": "..." }
+```
+
+`dataPath` passes when the sequencer feed is connected **or** the log
+watchers advanced the head block within the last 60 seconds.
+
+### `GET /api/metrics`
+
+Prometheus text exposition (`text/plain; version=0.0.4`), no dependency.
+Process (`process_uptime_seconds`, `process_resident_memory_bytes`,
+`nodejs_heap_size_*`, `nodejs_eventloop_lag_seconds` sampled by a 500ms
+timer), HTTP (`http_requests_total{method,route,status}`,
+`http_request_duration_ms` histogram by matched route), engine gauges read
+live from the engine (`hood_feed_connected`, `hood_feed_seconds_since_frame`,
+`hood_head_block`, `hood_positions_open`, `hood_killed`, `hood_arms{state}`,
+`hood_wallet_live`, `hood_launches_last_hour{launchpad}`) and counters from
+the event bus (`hood_launches_total{launchpad,venue}`, `hood_scores_total{tier}`,
+`hood_trades_total{side,mode}`, `hood_decisions_total{kind}`,
+`hood_refusals_total{reason}`, `hood_skips_total{reason}`, `hood_kill_trips_total`).
+
 ### `GET /api/status`
 
 Engine health, model provenance and table counts.
@@ -271,6 +299,76 @@ Per-arm equity series, oldest first. Query: `arm`, `limit` points per arm
 ```json
 { "series": [ { "armId": "...", "armLabel": "lean-noxa", "points": [ { "at": "...", "realizedWei": "2130000000000000", "openValueWei": "15100000000000000", "equityWei": "17230000000000000" } ] } ] }
 ```
+
+## x402: pay-per-score
+
+### `GET /api/x402/pricing`
+
+Free. What the paid route costs and how to pay it: price in USDG and
+atomic units, network (`robinhood`, chain id 4663), the USDG asset and its
+EIP-712 domain, the `exact` scheme, the pay-to address, the facilitator,
+and `enabled` (false until the operator sets `X402_PAY_TO`).
+
+### `GET /api/x402/score/:token`
+
+Paid: `0.05` USDG by default (`X402_SCORE_PRICE_USDG`). Without an
+`X-PAYMENT` header a scored token answers `402` with the x402 v1
+`accepts[]` challenge; with a valid signed EIP-3009 payment the facilitator
+settles it and the route answers the latest verdict, the feature snapshot,
+the latest firewall assessment, the verdict count and
+`X-PAYMENT-RESPONSE`. A token that was never scored answers `404
+not_scored` before any payment is asked for; with `X402_PAY_TO` unset the
+route answers `503 x402_not_configured`; an unreachable facilitator is `502
+facilitator_unreachable`. The protocol, the buyer flow and the operator
+setup are in [x402.md](x402.md).
+
+## MCP
+
+### `POST`, `GET`, `DELETE /mcp`
+
+The Model Context Protocol over Streamable HTTP, served by the engine
+itself. `POST` carries JSON-RPC (an `initialize` opens a session and the
+response sets `Mcp-Session-Id`); `GET` opens the session's server-to-client
+SSE stream; `DELETE` closes it. Read tools are free; write tools need
+`Authorization: Bearer <OPERATOR_TOKEN>` on the request. Tools, resources
+and client configuration are in [mcp.md](mcp.md).
+
+## Hardening
+
+Every response carries a `Content-Security-Policy` (`default-src 'self'`,
+`frame-ancestors 'none'`), `X-Content-Type-Options: nosniff`,
+`X-Frame-Options: DENY`, `Referrer-Policy: same-origin`, a restrictive
+`Permissions-Policy` and HSTS.
+
+**Request ids.** Every response carries `X-Request-Id`: the caller's own
+header when it is a sane token, else a fresh UUID. The same id is on the
+access-log line and inside a `500` body (`detail.requestId`).
+
+**Rate limits.** A token bucket per client address, in-process (so per
+instance; the one always-on instance makes that the whole limit): 600 reads
+per minute and 30 writes (`POST`/`PATCH`/`PUT`/`DELETE`) per minute. An SSE
+connect counts once. `/api/health`, `/api/ready` and `/api/metrics` are
+exempt. Over the limit:
+
+```
+HTTP/1.1 429
+Retry-After: 2
+X-RateLimit-Limit: 30
+X-RateLimit-Remaining: 0
+
+{ "error": "rate_limited", "message": "Too many write requests from this address: the limit is 30 per minute. Retry in 2s.", "detail": { "limitPerMinute": 30, "retryAfterSeconds": 2 } }
+```
+
+`X-Forwarded-For` is honoured only when `TRUST_PROXY=1`.
+
+**Body limit.** Request bodies on `/api/*` and `/mcp` are capped at 64KB;
+larger answers `413 payload_too_large` before anything is parsed.
+
+**CORS.** Same-origin by default: a request from another origin gets no
+`Access-Control-Allow-Origin` and a cross-origin preflight answers `403
+cors_origin_not_allowed`. `CORS_ORIGINS` (comma-separated) opens named
+origins for every method. A `*` entry opens reads to any origin and never
+a write route.
 
 ## Streams
 

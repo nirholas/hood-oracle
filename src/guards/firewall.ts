@@ -15,6 +15,7 @@ import {
 import type { ChainClient } from '../chain/client.js'
 import { errorText, withRpcRetry } from '../chain/client.js'
 import type { Prices } from '../chain/prices.js'
+import { V4_ADDRESSES, buildV4Buy, buildV4Sell, permit2ApprovalCalls, type V4Pool } from '../chain/v4.js'
 import type { Db } from '../db/client.js'
 import { firewallDecisions } from '../db/schema.js'
 import type { Logger } from '../log.js'
@@ -31,6 +32,8 @@ export interface FirewallInput {
   pool: Address | null
   /** Odyssey factory that owns the curve (curve venue only). */
   factory: Address | null
+  /** The v4 pool (v4 venue only). */
+  v4Pool?: V4Pool | null
   amountWei: bigint
   deployer: Address | null
   /** Round-trip loss cap as a percentage (default 35). */
@@ -287,6 +290,115 @@ async function roundTripCurve(input: FirewallInput): Promise<RoundTrip> {
   return { check: check('round_trip', 'pass', `Curve quotes price a ${(loss * 100).toFixed(1)}% round trip and a state-override transfer succeeds.`, 0), loss, transferTax: transfer, simulated: false }
 }
 
+const getEthBalanceAbi = [{ type: 'function', name: 'getEthBalance', stateMutability: 'view', inputs: [{ name: 'addr', type: 'address' }], outputs: [{ name: 'balance', type: 'uint256' }] }] as const
+
+/**
+ * v4 round trip through the UniversalRouter: buy, then (in a second
+ * simulation pinned to the same block) buy, Permit2 approvals, sell. The
+ * quote moved is measured on the probe sender itself (Multicall3
+ * getEthBalance for native and WETH pools, whose sells unwrap to ETH; USDG
+ * balance for USDG pools, whose probe balance is a storage override on a
+ * discovered slot), so a hook tax lands in the loss figure exactly.
+ */
+async function roundTripV4(input: FirewallInput): Promise<RoundTrip> {
+  const { chain, prices, token, amountWei } = input
+  const pool = input.v4Pool!
+  const ethUsd = pool.quoteSide === 'usdg' ? await prices.ethUsd() : null
+  const budget = pool.quoteSide === 'usdg' ? (ethUsd && ethUsd > 0 ? (amountWei * BigInt(Math.round(ethUsd * 1_000_000))) / (1_000_000_000_000n * 1_000_000n) : null) : amountWei
+  if (budget == null || budget <= 0n) return { check: check('round_trip', 'unavailable', 'The USDG budget could not be denominated (no ETH/USD reading).', PENALTY.sim_unavailable), loss: null, transferTax: null, simulated: false }
+  if (!(await supportsSimulateV1(chain))) {
+    const q = await prices.v4.quoteBuy(pool, budget)
+    if (!q) return { check: check('round_trip', 'fail', 'The v4 quoter cannot price a buy on this pool.', 100), loss: null, transferTax: null, simulated: false }
+    const back = await prices.v4.quoteSell(pool, q.amountOut)
+    if (back == null || back <= 0n) return { check: check('round_trip', 'fail', 'The v4 quoter cannot price the sell of what a buy would deliver (the pool cannot absorb it, or the hook refuses).', 100), loss: null, transferTax: null, simulated: false }
+    const loss = 1 - Number((back * 1_000_000n) / budget) / 1_000_000
+    return { check: check('round_trip', 'unavailable', `Independent quotes price a ${(loss * 100).toFixed(1)}% round trip, but the node has no eth_simulateV1 so the buy-then-sell sequence is unproven.`, PENALTY.sim_unavailable), loss, transferTax: null, simulated: false }
+  }
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 600)
+  const buy = buildV4Buy(pool, budget, 0n, deadline)
+  const balData = encodeFunctionData({ abi: erc20Abi, functionName: 'balanceOf', args: [PROBE_SENDER] })
+  const quoteBalance: SimCall = pool.quoteSide === 'usdg'
+    ? { to: pool.quote, data: balData }
+    : { to: chain.addresses.multicall3, data: encodeFunctionData({ abi: getEthBalanceAbi, functionName: 'getEthBalance', args: [PROBE_SENDER] }) }
+  let overrides: Record<string, { balance?: Hex; stateDiff?: Record<Hex, Hex> }> = { [PROBE_SENDER]: { balance: toHex(parseEther('1')) } }
+  let usdgApprovals: SimCall[] = []
+  if (pool.quoteSide === 'usdg') {
+    const slot = await findBalanceSlot(chain, pool.quote, PROBE_SENDER)
+    if (!slot) return { check: check('round_trip', 'unavailable', 'The USDG balance slot could not be discovered, so a funded USDG round trip cannot be simulated.', PENALTY.sim_unavailable), loss: null, transferTax: null, simulated: false }
+    overrides = { ...overrides, [pool.quote]: { stateDiff: { [slot]: toHex(budget * 2n, { size: 32 }) } } }
+    usdgApprovals = permit2ApprovalCalls(pool.quote).map((c) => ({ to: c.to, data: c.data }))
+  }
+  const buyCall: SimCall = { to: buy.to, data: buy.data, value: toHex(buy.value) }
+  let first: { calls: SimResult[]; block: Hex }
+  try {
+    first = await simulateWith(chain, [...usdgApprovals, buyCall, { to: token, data: balData }], overrides, 'latest')
+  } catch (err) {
+    return { check: check('round_trip', 'unavailable', `The v4 round-trip simulation could not run: ${errorText(err)}.`, PENALTY.sim_unavailable), loss: null, transferTax: null, simulated: false }
+  }
+  const buyRes = first.calls[usdgApprovals.length]!
+  if (buyRes.status !== '0x1') return { check: check('round_trip', 'fail', `The simulated v4 buy reverted (${buyRes.error?.message ?? 'no reason'}); this size cannot be bought right now.`, 100), loss: null, transferTax: null, simulated: true }
+  const balance = BigInt(first.calls[usdgApprovals.length + 1]!.returnData === '0x' ? '0x0' : first.calls[usdgApprovals.length + 1]!.returnData)
+  if (balance <= 0n) return { check: check('round_trip', 'fail', 'The simulated v4 buy delivered zero tokens to the buyer.', 100), loss: null, transferTax: 1, simulated: true }
+  const quoted = await prices.v4.quoteBuy(pool, budget)
+  const tax = quoted && quoted.amountOut > 0n && balance < quoted.amountOut ? 1 - Number((balance * 1_000_000n) / quoted.amountOut) / 1_000_000 : 0
+  const sell = buildV4Sell(pool, balance, 0n, deadline)
+  const tokenApprovals = permit2ApprovalCalls(token).map((c) => ({ to: c.to, data: c.data }))
+  let second: { calls: SimResult[]; block: Hex }
+  try {
+    second = await simulateWith(chain, [...usdgApprovals, quoteBalance, buyCall, ...tokenApprovals, quoteBalance, { to: sell.to, data: sell.data }, quoteBalance], overrides, first.block)
+  } catch (err) {
+    return { check: check('round_trip', 'unavailable', `The v4 sell leg simulation could not run: ${errorText(err)}.`, PENALTY.sim_unavailable), loss: null, transferTax: tax, simulated: false }
+  }
+  const base = usdgApprovals.length
+  const sellRes = second.calls[base + 2 + tokenApprovals.length + 1]!
+  for (let i = base + 2; i < base + 2 + tokenApprovals.length; i++) {
+    if (second.calls[i]!.status !== '0x1') return { check: check('round_trip', 'fail', `A Permit2 approval reverted in simulation (${second.calls[i]!.error?.message ?? 'no reason'}); the router can never pull the tokens to sell.`, 100), loss: null, transferTax: tax, simulated: true }
+  }
+  if (sellRes.status !== '0x1') return { check: check('round_trip', 'fail', `The simulated v4 sell reverted (${sellRes.error?.message ?? 'no reason'}): this behaves like a honeypot you cannot exit.`, 100), loss: null, transferTax: tax, simulated: true }
+  const before = BigInt(second.calls[base]!.returnData)
+  const afterBuy = BigInt(second.calls[base + 2 + tokenApprovals.length]!.returnData)
+  const afterSell = BigInt(second.calls[base + 2 + tokenApprovals.length + 2]!.returnData)
+  const spent = before - afterBuy
+  const received = afterSell - afterBuy
+  if (spent <= 0n) return { check: check('round_trip', 'unavailable', 'The simulated buy did not move the quote balance; the measurement is unusable.', PENALTY.sim_unavailable), loss: null, transferTax: tax, simulated: true }
+  if (received <= 0n) return { check: check('round_trip', 'fail', 'The simulated v4 sell returned nothing to the seller: there is no working exit.', 100), loss: 1, transferTax: tax, simulated: true }
+  const loss = 1 - Number((received * 1_000_000n) / spent) / 1_000_000
+  const unit = pool.quoteSide === 'usdg' ? 'USDG' : 'ETH'
+  const fmt = (v: bigint) => pool.quoteSide === 'usdg' ? (Number(v) / 1e6).toFixed(2) : fmtEth(v)
+  return { check: check('round_trip', 'pass', `A simulated v4 buy then sell of ${fmt(spent)} ${unit} through the UniversalRouter returned ${fmt(received)} ${unit} (${(loss * 100).toFixed(1)}% round-trip cost, hook fees included).`, 0), loss, transferTax: tax, simulated: true }
+}
+
+/** eth_simulateV1 with arbitrary state overrides (the probe sender is always funded with ETH). */
+async function simulateWith(chain: ChainClient, calls: SimCall[], overrides: Record<string, { balance?: Hex; stateDiff?: Record<Hex, Hex> }>, block: Hex | 'latest'): Promise<{ calls: SimResult[]; block: Hex }> {
+  const res = (await withRpcRetry(() => chain.publicClient.request({
+    method: 'eth_simulateV1' as never,
+    params: [{ blockStateCalls: [{ stateOverrides: overrides, calls: calls.map((c) => ({ from: PROBE_SENDER, ...c })) }], validation: false, traceTransfers: false }, block] as never,
+  }))) as { number: Hex; calls: SimResult[] }[]
+  const simulated = res[0]
+  if (!simulated) throw new Error('eth_simulateV1 returned no block')
+  return { calls: simulated.calls ?? [], block: block === 'latest' ? toHex(BigInt(simulated.number) - 1n) : block }
+}
+
+/** The storage key of `holder`'s balance in `token`'s balances mapping, found by overriding candidate slots and reading balanceOf back. */
+async function findBalanceSlot(chain: ChainClient, token: Address, holder: Address): Promise<Hex | null> {
+  const probe = 123_456_789n
+  const balData = encodeFunctionData({ abi: erc20Abi, functionName: 'balanceOf', args: [holder] })
+  for (let slot = 0n; slot < 40n; slot++) {
+    for (const order of ['solidity', 'vyper'] as const) {
+      const key = order === 'solidity'
+        ? keccak256(encodeAbiParameters([{ type: 'address' }, { type: 'uint256' }], [holder, slot]))
+        : keccak256(encodeAbiParameters([{ type: 'uint256' }, { type: 'address' }], [slot, holder]))
+      try {
+        const read = await chain.publicClient.call({ to: token, data: balData, stateOverride: [{ address: token, stateDiff: [{ slot: key, value: toHex(probe, { size: 32 }) }] }] })
+        if (read.data && BigInt(read.data) === probe) return key
+      } catch {
+        // not this slot
+      }
+    }
+  }
+  return null
+}
+
 function decodeMulticallFirst(data: Hex): bigint | null {
   try {
     const out = decodeFunctionResult({ abi: swapRouter02Abi, functionName: 'multicall', data }) as readonly Hex[]
@@ -445,6 +557,13 @@ async function checkDeployer(input: FirewallInput): Promise<FirewallCheck> {
 async function checkLiquidity(input: FirewallInput): Promise<FirewallCheck> {
   const { chain, prices, token, venue } = input
   const floor = input.minLiquidityWei ?? parseEther('0.05')
+  if (venue === 'v4') {
+    if (!input.v4Pool) return check('liquidity', 'fail', 'No v4 pool key is known for this token.', 100)
+    const liq = await prices.v4.liquidity(input.v4Pool.poolId)
+    if (liq == null) return check('liquidity', 'unavailable', 'The v4 pool liquidity could not be read from StateView.', PENALTY.liquidity_unreadable)
+    if (liq === 0n) return check('liquidity', 'fail', 'The v4 pool has zero in-range liquidity: nothing to sell into.', 100)
+    return check('liquidity', 'pass', `The v4 pool reports in-range liquidity ${liq} (hook ${input.v4Pool.key.hooks}).`, 0)
+  }
   if (venue === 'curve') {
     const s = await prices.curveState(token, input.factory ?? undefined)
     if (!s) return check('liquidity', 'fail', 'No Odyssey curve exists for this token.', 100)
@@ -499,6 +618,7 @@ export async function assessTradeSafety(input: FirewallInput): Promise<FirewallA
   try {
     if (input.venue === 'pool' && input.pool) roundTrip = await roundTripPool(input)
     else if (input.venue === 'curve' && input.factory) roundTrip = await roundTripCurve(input)
+    else if (input.venue === 'v4' && input.v4Pool) roundTrip = await roundTripV4(input)
     else roundTrip = { check: check('round_trip', 'fail', 'No venue to trade on: no pool and no curve.', 100), loss: null, transferTax: null, simulated: false }
   } catch (err) {
     roundTrip = { check: check('round_trip', 'unavailable', `The round trip could not be evaluated: ${errorText(err)}.`, PENALTY.sim_unavailable), loss: null, transferTax: null, simulated: false }
@@ -516,6 +636,7 @@ export async function assessTradeSafety(input: FirewallInput): Promise<FirewallA
   }
   let expectedOut: bigint | null = null
   if (input.venue === 'pool' && input.pool) expectedOut = (await input.prices.poolQuoteBuy(input.pool, input.token, input.amountWei))?.amountOut ?? null
+  else if (input.venue === 'v4' && input.v4Pool) expectedOut = (await input.prices.v4QuoteBuy(input.v4Pool, input.amountWei))?.amountOut ?? null
   else if (input.factory) expectedOut = (await input.prices.curveQuoteBuy(input.factory, input.token, input.amountWei))?.tokensOut ?? null
   const [controls, deployer, liquidity] = await Promise.all([
     checkControls(input, expectedOut).catch((err) => [check('erc20_probe', 'unavailable', `Control probes failed: ${errorText(err)}.`, PENALTY.liquidity_unreadable)]),

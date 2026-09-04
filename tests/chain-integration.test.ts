@@ -13,6 +13,7 @@ import { Prices } from '../src/chain/prices.js'
 import { assessTradeSafety, supportsSimulateV1 } from '../src/guards/firewall.js'
 import { FEED_URL, PUBLIC_RPC } from '../src/config.js'
 import { log } from '../src/log.js'
+import { withLiveLock } from './live-lock.js'
 
 let chain: ChainClient | null = null
 let reason = ''
@@ -33,7 +34,7 @@ const live = (fn: (c: ChainClient) => Promise<void>) => async () => {
     log.warn({ reason }, 'skipped')
     return
   }
-  await fn(chain)
+  await withLiveLock(() => fn(chain!))
 }
 
 describe('chain client', () => {
@@ -44,7 +45,7 @@ describe('chain client', () => {
     expect(head).toBeGreaterThan(50_000_000n)
     const chainId = await c.publicClient.getChainId()
     expect(chainId).toBe(4663)
-  }), 30_000)
+  }), 300_000)
 
   it('lists launches over the last 2000 blocks without error (the launchpads may be quiet)', live(async (c) => {
     const launches = await getRecentLaunches(c.hood, { lookbackBlocks: 2_000n, chunkSize: 2_000n })
@@ -53,7 +54,7 @@ describe('chain client', () => {
       expect(['noxa', 'odyssey']).toContain(l.launchpad)
       expect(l.token).toMatch(/^0x[0-9a-fA-F]{40}$/)
     }
-  }), 60_000)
+  }), 300_000)
 })
 
 describe('prices', () => {
@@ -76,7 +77,7 @@ describe('prices', () => {
     const sellOut = await prices.poolQuoteSell(pool, c.addresses.usdg, 1_000_000n)
     expect(sellOut).not.toBeNull()
     expect(Number(sellOut!) / 1e18 * usd!).toBeCloseTo(1, 1)
-  }), 60_000)
+  }), 300_000)
 })
 
 describe('history', () => {
@@ -97,7 +98,7 @@ describe('history', () => {
       expect(a.blockNumber! < b.blockNumber! || (a.blockNumber === b.blockNumber && a.logIndex! < b.logIndex!)).toBe(true)
     }
     log.info({ logs: logs.length, chunks: chunks.length, shrinks }, 'history chunking')
-  }), 120_000)
+  }), 300_000)
 
   it('decodes pool swaps for a NOXA launch into tape trades', live(async (c) => {
     const [first] = await getLogsChunked(c.publicClient, { address: NOXA_ADDRESSES.launchFactory, event: noxaTokenLaunchedEvent, fromBlock: NOXA_ADDRESSES.deployBlock, toBlock: NOXA_ADDRESSES.deployBlock + 50_000n }, { chunk: 50_000n })
@@ -114,7 +115,7 @@ describe('history', () => {
       expect(typeof t.isBuy).toBe('boolean')
     }
     log.info({ token: args.token, trades: trades.length, buys: trades.filter((t) => t.isBuy).length }, 'first NOXA launch tape')
-  }), 120_000)
+  }), 300_000)
 })
 
 describe('firewall', () => {
@@ -132,7 +133,7 @@ describe('firewall', () => {
     expect(a.roundTripLossPct!).toBeGreaterThanOrEqual(0)
     expect(['allow', 'warn']).toContain(a.verdict)
     expect(a.latencyMs).toBeLessThan(15_000)
-  }), 60_000)
+  }), 300_000)
 })
 
 describe('sequencer feed', () => {
@@ -149,5 +150,5 @@ describe('sequencer feed', () => {
     expect(h.secondsSinceFrame).not.toBeNull()
     expect(h.secondsSinceFrame!).toBeLessThanOrEqual(20)
     log.info({ ...h }, 'feed health')
-  }), 30_000)
+  }), 300_000)
 })

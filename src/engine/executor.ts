@@ -10,6 +10,7 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { erc20Abi, odysseyCurveAbi, ROUTER_ADDRESS_THIS, swapRouter02Abi, swapRouter02PaymentsAbi, uniswapV3PoolAbi } from '../chain/abis.js'
 import { errorText, withRpcRetry } from '../chain/client.js'
 import { submitTransaction, SubmitError } from '../chain/submit.js'
+import { V4_ADDRESSES, buildV4Buy, buildV4Sell, permit2Abi, permit2ApprovalCalls, quoteUnitsToWei, v4HookSupportFor, v4PoolFromLaunch, type V4Pool } from '../chain/v4.js'
 import { getLogsChunked } from '../chain/history.js'
 import { erc20TransferEvent } from '../chain/abis.js'
 import { toBigInt, toBigIntOrNull } from '../db/client.js'
@@ -105,7 +106,13 @@ export class Executor {
       if (req.venue === 'curve' && req.factory && req.factory.toLowerCase() === this.ctx.chain.addresses.odysseyReflection.toLowerCase()) {
         return refuse({ ok: false, reason: 'no_route', detail: 'reflection-factory tokens graduate to a Uniswap v4 pool that SwapRouter02 cannot exit; observe only' })
       }
-      if (req.venue === 'v4') return refuse({ ok: false, reason: 'no_route', detail: 'the token trades on a Uniswap v4 pool; the executor routes SwapRouter02 (v3) only' })
+      let v4Pool: V4Pool | null = null
+      if (req.venue === 'v4') {
+        v4Pool = v4PoolFromLaunch(launch, this.ctx.chain.addresses)
+        if (!v4Pool) return refuse({ ok: false, reason: 'no_route', detail: 'the v4 pool is quoted in a currency the executor does not hold (only native ETH, WETH and USDG pools are traded)' })
+        const hook = v4HookSupportFor(v4Pool.key.hooks)
+        if (!hook.supported) return refuse({ ok: false, reason: 'no_route', detail: hook.reason })
+      }
       if (req.venue === 'pool' && !req.pool) return refuse({ ok: false, reason: 'no_route', detail: 'no pool known for this token yet' })
       if (req.venue === 'curve' && !req.factory) return refuse({ ok: false, reason: 'no_route', detail: 'no Odyssey curve found for this token' })
       const amountWei = arm.perTradeWei
@@ -135,7 +142,7 @@ export class Executor {
       const spend = await spendSnapshot(this.ctx.db, arm.id)
 
       // Quote and price impact vs spot. Unpriceable is a refusal, never a guess.
-      const quoted = await this.quoteBuy(req, amountWei)
+      const quoted = await this.quoteBuy(req, amountWei, v4Pool)
       if (!quoted) return refuse({ ok: false, reason: 'no_route', detail: 'the venue could not quote this buy' })
       if (quoted.impactPct == null) return refuse({ ok: false, reason: 'price_impact', detail: 'spot price unavailable, price impact cannot be measured' })
       if (req.venue === 'curve' && quoted.willGraduate) return refuse({ ok: false, reason: 'no_route', detail: 'this buy would complete the curve; the position would open on an unpriced pool' })
@@ -153,7 +160,7 @@ export class Executor {
       if (arm.firewallLevel !== 'off') {
         firewall = await assessTradeSafety({
           chain: this.ctx.chain, prices: this.ctx.prices, log: this.ctx.log, db: this.ctx.db, network: this.ctx.network,
-          token, venue: req.venue, pool: req.pool, factory: req.factory, amountWei, deployer: launch.creator,
+          token, venue: req.venue, pool: req.pool, factory: req.factory, amountWei, deployer: launch.creator, v4Pool,
         })
         const critical = criticalFirewallReason(firewall)
         if (arm.firewallLevel === 'block' && (firewall.verdict === 'block' || critical)) {
@@ -169,7 +176,7 @@ export class Executor {
         fill = { tokenAmount: quoted.amountOut, entryWei: quoted.spendWei, txHash: 'SIMULATED', gasWei: null, meta: { fillPrice: 'quote_mid' } }
       } else {
         try {
-          fill = await this.liveBuy(req, amountWei, quoted)
+          fill = await this.liveBuy(req, amountWei, quoted, v4Pool)
         } catch (err) {
           const detail = err instanceof SubmitError ? `${err.stage}: ${err.message}` : errorText(err)
           this.ctx.log.error({ ...tag, err: detail }, 'live buy failed')
@@ -185,6 +192,7 @@ export class Executor {
       const now = new Date()
       const meta: Record<string, unknown> = {
         venue: req.venue, pool: req.pool, factory: req.factory, trigger: req.trigger,
+        ...(v4Pool ? { v4: { currency0: v4Pool.key.currency0, currency1: v4Pool.key.currency1, fee: v4Pool.key.fee, tickSpacing: v4Pool.key.tickSpacing, hooks: v4Pool.key.hooks, poolId: v4Pool.poolId, quote: v4Pool.quote, quoteSide: v4Pool.quoteSide, tokenIsCurrency0: v4Pool.tokenIsCurrency0 } } : {}),
         priceImpactPct: quoted.impactPct, quotedOut: quoted.amountOut.toString(), originalEntryWei: fill.entryWei.toString(),
         firewall: firewall ? { verdict: firewall.verdict, score: firewall.score, roundTripLossPct: firewall.roundTripLossPct } : null,
         symbol: launch.symbol, name: launch.name, launchpad: launch.launchpad, ...fill.meta,
@@ -215,25 +223,45 @@ export class Executor {
     }
   }
 
-  private async quoteBuy(req: BuyRequest, amountWei: bigint): Promise<{ amountOut: bigint; spendWei: bigint; impactPct: number | null; willGraduate: boolean; fee: number | null } | null> {
+  private async quoteBuy(req: BuyRequest, amountWei: bigint, v4Pool: V4Pool | null): Promise<{ amountOut: bigint; spendWei: bigint; spendUnits: bigint; impactPct: number | null; willGraduate: boolean; fee: number | null } | null> {
     const { token, decimals } = req.launch
+    if (req.venue === 'v4') {
+      if (!v4Pool) return null
+      const q = await this.ctx.prices.v4QuoteBuy(v4Pool, amountWei)
+      if (!q) return null
+      const spot = await this.ctx.prices.v4SpotEth(v4Pool, decimals)
+      return { amountOut: q.amountOut, spendWei: q.spendWei, spendUnits: q.spendUnits, impactPct: impactFromSpot(q.spendWei, q.amountOut, decimals, spot), willGraduate: false, fee: v4Pool.key.fee }
+    }
     if (req.venue === 'pool') {
       const q = await this.ctx.prices.poolQuoteBuy(req.pool!, token, amountWei)
       if (!q) return null
       const spot = await this.ctx.prices.poolSpotEth(req.pool!, token, decimals)
-      return { amountOut: q.amountOut, spendWei: amountWei, impactPct: impactFromSpot(amountWei, q.amountOut, decimals, spot), willGraduate: false, fee: q.fee }
+      return { amountOut: q.amountOut, spendWei: amountWei, spendUnits: amountWei, impactPct: impactFromSpot(amountWei, q.amountOut, decimals, spot), willGraduate: false, fee: q.fee }
     }
     const q = await this.ctx.prices.curveQuoteBuy(req.factory!, token, amountWei)
     if (!q) return null
     const spot = await this.ctx.prices.curveSpotEth(token, req.factory!)
-    return { amountOut: q.tokensOut, spendWei: q.totalIn, impactPct: impactFromSpot(q.totalIn, q.tokensOut, decimals, spot), willGraduate: q.willGraduate, fee: null }
+    return { amountOut: q.tokensOut, spendWei: q.totalIn, spendUnits: q.totalIn, impactPct: impactFromSpot(q.totalIn, q.tokensOut, decimals, spot), willGraduate: q.willGraduate, fee: null }
   }
 
-  private async liveBuy(req: BuyRequest, amountWei: bigint, quoted: { amountOut: bigint; fee: number | null }): Promise<{ tokenAmount: bigint; entryWei: bigint; txHash: Hash; gasWei: bigint; meta: Record<string, unknown> }> {
+  private async liveBuy(req: BuyRequest, amountWei: bigint, quoted: { amountOut: bigint; fee: number | null; spendUnits: bigint }, v4Pool: V4Pool | null): Promise<{ tokenAmount: bigint; entryWei: bigint; txHash: Hash; gasWei: bigint; meta: Record<string, unknown> }> {
     const { chain } = this.ctx
     const account = chain.account!
     const token = req.launch.token
     const minOut = (quoted.amountOut * BigInt(10_000 - req.arm.slippageBps)) / 10_000n
+    if (req.venue === 'v4' && v4Pool) {
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 120)
+      if (v4Pool.quoteSide === 'usdg') {
+        const usdg = await withRpcRetry(() => chain.publicClient.readContract({ address: v4Pool.quote, abi: erc20Abi, functionName: 'balanceOf', args: [account.address] }))
+        if (usdg < quoted.spendUnits) throw new SubmitError(`the wallet holds ${usdg} USDG units but the buy needs ${quoted.spendUnits}`, null, 'prepare')
+        await this.ensurePermit2(v4Pool.quote)
+      }
+      const tx = buildV4Buy(v4Pool, quoted.spendUnits, minOut, deadline)
+      const result = await submitTransaction(chain, { to: tx.to, data: tx.data, value: tx.value }, { receiptDeadlineMs: 30_000 })
+      const tokenAmount = receivedFromLogs(result.receipt.logs, token, account.address)
+      const approvalTxs = await this.ensurePermit2(token)
+      return { tokenAmount, entryWei: amountWei, txHash: result.hash, gasWei: result.gasWei, meta: { acceptMs: result.acceptMs, confirmMs: result.confirmMs, acceptedBy: result.acceptedBy, approvalTx: approvalTxs, router: V4_ADDRESSES.universalRouter, spendUnits: quoted.spendUnits.toString() } }
+    }
     let to: Address
     let data: Hex
     if (req.venue === 'pool') {
@@ -285,6 +313,29 @@ export class Executor {
     return res.hash
   }
 
+  /**
+   * One-time Permit2 plumbing per token: approve Permit2 on the token, then
+   * grant the UniversalRouter a max allowance on Permit2. Returns the hashes
+   * sent, or null when both allowances were already in place.
+   */
+  private async ensurePermit2(token: Address): Promise<Hash[] | null> {
+    const { chain } = this.ctx
+    const account = chain.account!
+    const key = `permit2:${token.toLowerCase()}`
+    if (this.approvedSpenders.has(key)) return null
+    const [tokenAllowance, permit] = await Promise.all([
+      withRpcRetry(() => chain.publicClient.readContract({ address: token, abi: erc20Abi, functionName: 'allowance', args: [account.address, V4_ADDRESSES.permit2] })),
+      withRpcRetry(() => chain.publicClient.readContract({ address: V4_ADDRESSES.permit2, abi: permit2Abi, functionName: 'allowance', args: [account.address, token, V4_ADDRESSES.universalRouter] })),
+    ])
+    const now = Math.floor(Date.now() / 1000)
+    const calls = permit2ApprovalCalls(token)
+    const hashes: Hash[] = []
+    if (tokenAllowance < MAX_UINT / 2n) hashes.push((await submitTransaction(chain, calls[0]!, { receiptDeadlineMs: 30_000 })).hash)
+    if (permit[0] < 2n ** 159n || permit[1] <= now + 86_400) hashes.push((await submitTransaction(chain, calls[1]!, { receiptDeadlineMs: 30_000 })).hash)
+    this.approvedSpenders.add(key)
+    return hashes.length ? hashes : null
+  }
+
   // ── sell ──────────────────────────────────────────────────────────────────
 
   sell(req: SellRequest): Promise<SellResult> {
@@ -304,6 +355,7 @@ export class Executor {
     const venue: Venue = position.venue
     const pool = req.pool ?? (typeof position.meta.pool === 'string' ? getAddress(position.meta.pool) : null)
     const factory = typeof position.meta.factory === 'string' ? getAddress(position.meta.factory) : null
+    const v4Pool = venue === 'v4' ? v4PoolFromPositionMeta(position.meta, token) : null
 
     // Live: the chain is the source of truth for what we still hold.
     if (position.mode === 'live' && this.ctx.chain.account) {
@@ -323,7 +375,13 @@ export class Executor {
     }
 
     let quoteOut: bigint | null
-    if (venue === 'pool') {
+    let quoteUnits: bigint | null = null
+    if (venue === 'v4') {
+      if (!v4Pool) return { status: 'failed', error: 'no v4 pool recorded for this position' }
+      const q = await this.ctx.prices.v4QuoteSellWei(v4Pool, sellAmount)
+      quoteOut = q?.wei ?? null
+      quoteUnits = q?.units ?? null
+    } else if (venue === 'pool') {
       if (!pool) return { status: 'failed', error: 'no pool recorded for this position' }
       quoteOut = await this.ctx.prices.poolQuoteSell(pool, token, sellAmount)
     } else {
@@ -337,7 +395,9 @@ export class Executor {
       fill = { ethOut: quoteOut, txHash: 'SIMULATED', gasWei: null }
     } else {
       try {
-        fill = await this.liveSell({ token, venue, pool, factory, amount: sellAmount, minOut: (quoteOut * BigInt(10_000 - arm.slippageBps)) / 10_000n })
+        fill = venue === 'v4'
+          ? await this.liveSellV4(v4Pool!, sellAmount, ((quoteUnits ?? 0n) * BigInt(10_000 - arm.slippageBps)) / 10_000n)
+          : await this.liveSell({ token, venue, pool, factory, amount: sellAmount, minOut: (quoteOut * BigInt(10_000 - arm.slippageBps)) / 10_000n })
       } catch (err) {
         const detail = err instanceof SubmitError ? `${err.stage}: ${err.message}` : errorText(err)
         this.ctx.log.error({ ...tag, err: detail }, 'live sell failed')
@@ -441,6 +501,29 @@ export class Executor {
   }
 
   /**
+   * Sell on a v4 pool through the UniversalRouter. Proceeds are measured as
+   * the wallet's balance change in the quote currency (ETH for native and
+   * WETH pools, which unwrap; USDG for USDG pools), with gas added back for
+   * ETH, so the number booked is what actually arrived.
+   */
+  private async liveSellV4(pool: V4Pool, amount: bigint, minOutUnits: bigint): Promise<{ ethOut: bigint; txHash: Hash; gasWei: bigint }> {
+    const { chain } = this.ctx
+    const account = chain.account!
+    await this.ensurePermit2(pool.token)
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 120)
+    const tx = buildV4Sell(pool, amount, minOutUnits, deadline)
+    const readQuote = () => pool.quoteSide === 'usdg'
+      ? withRpcRetry(() => chain.publicClient.readContract({ address: pool.quote, abi: erc20Abi, functionName: 'balanceOf', args: [account.address] }))
+      : withRpcRetry(() => chain.publicClient.getBalance({ address: account.address }))
+    const before = await readQuote()
+    const result = await submitTransaction(chain, { to: tx.to, data: tx.data, value: 0n }, { receiptDeadlineMs: 30_000 })
+    const after = await readQuote()
+    const units = pool.quoteSide === 'usdg' ? after - before : after - before + result.gasWei
+    const wei = quoteUnitsToWei(units > 0n ? units : 0n, pool.quoteSide, pool.quoteSide === 'usdg' ? await this.ctx.prices.ethUsd() : null)
+    return { ethOut: wei ?? 0n, txHash: result.hash, gasWei: result.gasWei }
+  }
+
+  /**
    * The wallet holds none of the token the position says it holds. Find the
    * transfer that emptied it; if it is found the position closes with unknown
    * proceeds (never invented), otherwise it parks as reconcile_pending until
@@ -524,6 +607,17 @@ export function receivedFromLogs(logs: readonly { address: Address; data: Hex; t
     }
   }
   return sum
+}
+
+/** The v4 pool a position was opened on, from the metadata the buy recorded. */
+export function v4PoolFromPositionMeta(meta: Record<string, unknown>, token: Address): V4Pool | null {
+  const v = meta.v4 as { currency0?: string; currency1?: string; fee?: number; tickSpacing?: number; hooks?: string; poolId?: string; quote?: string; quoteSide?: string; tokenIsCurrency0?: boolean } | undefined
+  if (!v || !v.currency0 || !v.currency1 || v.fee == null || v.tickSpacing == null || !v.hooks || !v.poolId || !v.quote || !v.quoteSide) return null
+  if (v.quoteSide !== 'native' && v.quoteSide !== 'weth' && v.quoteSide !== 'usdg') return null
+  return {
+    key: { currency0: getAddress(v.currency0), currency1: getAddress(v.currency1), fee: Number(v.fee), tickSpacing: Number(v.tickSpacing), hooks: getAddress(v.hooks) },
+    poolId: v.poolId as Hash, token: getAddress(token), quote: getAddress(v.quote), quoteSide: v.quoteSide, tokenIsCurrency0: v.tokenIsCurrency0 === true,
+  }
 }
 
 export function rowToPosition(r: typeof positions.$inferSelect): Position {

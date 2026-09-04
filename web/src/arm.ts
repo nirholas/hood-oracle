@@ -399,7 +399,7 @@ function selectArm(id: string | null, sync = true): void {
   state.isNew = false
   const arm = current()
   fillForm(arm)
-  if (sync) history.replaceState(null, '', id ? `/arm?id=${id}` : '/arm')
+  if (sync) history.replaceState(null, '', id ? `/app/arm?id=${id}` : '/app/arm')
   renderList()
   renderState()
   void loadLedger()
@@ -411,7 +411,7 @@ function selectNew(sync = true): void {
   state.selectedId = null
   state.isNew = true
   fillForm(null)
-  if (sync) history.replaceState(null, '', '/arm?new=1')
+  if (sync) history.replaceState(null, '', '/app/arm?new=1')
   renderList()
   renderState()
   setHtml($('#ledgerBody'), h`<div class="state compact">Save the arm to start its ledger.</div>`)
@@ -565,7 +565,7 @@ async function save(): Promise<ArmWire | null> {
   btn.classList.remove('dirty')
   state.isNew = false
   state.selectedId = arm.id
-  history.replaceState(null, '', `/arm?id=${arm.id}`)
+  history.replaceState(null, '', `/app/arm?id=${arm.id}`)
   await loadArms(true)
   fillForm(current() ?? arm)
   const clamped = r.data.clamped ?? []
@@ -724,7 +724,7 @@ function renderPreview(): void {
   const capped = hits.length * per > daily && daily > 0
   countEl.textContent = `${hits.length} would have been bought`
   setHtml(body, h`<div class="risk" style="margin:0 0 10px">≈ <b>${deployed.toFixed(4)} ETH</b> deployed${capped ? h` (daily budget caps ${hits.length} × ${per} ETH)` : ''}${p.maxConcurrentPositions < hits.length ? h` · concurrency cap <b>${p.maxConcurrentPositions}</b> would queue the rest` : ''}</div>${hits.slice(0, 8).map((it) => h`<div class="qrow">
-    <div><div class="q-sym"><a href="/coin/${it.token}">${symbolOf(it)}</a>${tierPill(it.score.tier)}<span class="badge b-${it.launchpad}">${it.launchpad}</span></div>
+    <div><div class="q-sym"><a href="/app/coin/${it.token}">${symbolOf(it)}</a>${tierPill(it.score.tier)}<span class="badge b-${it.launchpad}">${it.launchpad}</span></div>
       <div class="q-sub"><span>${it.features?.category ?? 'unknown'}</span><span>rug ${Math.round(it.score.rugRisk * 100)}%</span><span>${it.features?.unique_buyers ?? 'n/a'} buyers</span><span>${ago(it.score.scoredAt)} ago</span></div></div>
     <div class="q-score ${it.score.score >= 70 ? 'hi' : ''}">${Math.round(it.score.score)}</div>
     <div class="q-size"><span>would buy</span>${per} ETH</div>
@@ -737,7 +737,7 @@ async function loadLedger(): Promise<void> {
   const body = $('#ledgerBody')
   const id = state.selectedId
   if (!id) return
-  $<HTMLAnchorElement>('#ledgerLink').href = `/positions?arm=${id}`
+  $<HTMLAnchorElement>('#ledgerLink').href = `/app/positions?arm=${id}`
   setHtml(body, skeletonRows(3, [50, 16, 16, 10]))
   const r = await api<{ positions: PositionListItem[] }>(`/api/positions?arm=${id}&limit=12`)
   if (state.selectedId !== id) return
@@ -747,7 +747,7 @@ async function loadLedger(): Promise<void> {
   setHtml(body, h`<div class="tape"><div class="tape-list">${rows.map((p) => {
     const pct = p.status === 'open' ? unrealized(p) : p.realizedPnlPct
     const cls = pct == null ? '' : pct >= 0 ? 'up' : 'dn'
-    return h`<a class="trow ledgerrow" href="/coin/${p.token}">
+    return h`<a class="trow ledgerrow" href="/app/coin/${p.token}">
       <div class="sym"><span>${symbolOf(p)}</span><span class="badge ${p.mode === 'live' ? 'b-live' : 'b-sim'}">${p.mode}</span><span class="badge ${p.status === 'open' ? 'b-on' : 'b-off'}">${p.status === 'open' ? 'open' : p.exitReason ?? 'closed'}</span></div>
       <div class="num">${fmtEth(p.entryWei, '')}<small>entry Ξ</small></div>
       <div class="num ${cls}">${fmtSignedPct(pct)}<small>pnl</small></div>

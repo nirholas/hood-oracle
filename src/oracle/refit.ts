@@ -42,6 +42,13 @@ export const MIN_BAND_ROWS = 20
 
 const num = (v: unknown): number | null => (v == null || !Number.isFinite(Number(v)) ? null : Number(v))
 
+/** Observed wins sit below 70% of the claim by more than two binomial standard errors. */
+export function bandFallsShort(b: { lo: number; n: number; observed: number }): boolean {
+  const wins = b.observed * b.n
+  const floor = b.n * b.lo * 0.7 - 2 * Math.sqrt(b.n * b.lo * (1 - b.lo))
+  return wins < floor
+}
+
 /** Checks whose failure marks a candidate 'rejected' rather than 'archived' (lost to the incumbent). */
 const REJECTION_CHECKS = new Set(['fit_complete', 'absolute_auc', 'tier_honesty', 'feature_set'])
 
@@ -75,9 +82,15 @@ export function judgeCandidate(candidate: Candidate, incumbent: OracleModelDocum
   // 3. Does every tier still earn the probability it claims? The ladder is a
   //    public promise. A model whose top band claims 45% and delivers 20% is
   //    accurate in aggregate and lying on every card that renders it.
+  //    A band is dishonest when it falls short of its claim by 30% AND by
+  //    more than two standard errors of a binomial at the claimed rate. The
+  //    second clause is what makes the test usable on a young chain: a band
+  //    of 30 launches claiming 5% expects 1.5 wins, and observing one is not
+  //    evidence of anything. At large n the rule converges to "observed below
+  //    0.7 x claim", the same bar the large-corpus gate applies.
   const bands = candidate.holdout?.[head]?.reliability ?? []
-  const populated = bands.filter((b) => b.n >= MIN_BAND_ROWS)
-  const dishonest = populated.filter((b) => b.observed < b.lo * 0.7)
+  const populated = bands.filter((b) => b.n >= MIN_BAND_ROWS && b.lo > 0)
+  const dishonest = populated.filter((b) => bandFallsShort(b))
   checks.push({
     check: 'tier_honesty',
     pass: !dishonest.length,

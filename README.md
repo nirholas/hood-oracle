@@ -217,6 +217,36 @@ serializes as decimal strings, dates as ISO 8601, and every error is
 | `GET /api/decisions` | The hash-chained journal, with a chain verification result. |
 | `GET /api/equity` | Realized, open and total equity curves per arm. |
 | `GET /api/stream` | SSE: every engine event, with a replay of the recent ring buffer on connect. |
+| `GET /api/ready` | Readiness (database, data path, model), distinct from liveness. 503 with reasons when not ready. |
+| `GET /api/metrics` | Prometheus text: process, event-loop lag, HTTP by route, engine gauges and bus counters. |
+| `GET /api/x402/pricing` | Free: what a paid verdict costs (USDG on 4663) and how to pay. |
+| `GET /api/x402/score/:token` | Paid over x402: the latest verdict, features and firewall for one token. See [docs/x402.md](docs/x402.md). |
+| `POST` / `GET` / `DELETE /mcp` | The MCP server over Streamable HTTP. See [docs/mcp.md](docs/mcp.md). |
+
+Every response carries security headers and an `X-Request-Id`; reads are
+rate-limited at 600 per minute per client and writes at 30, bodies are
+capped at 64KB, and CORS is same-origin unless `CORS_ORIGINS` opens it. The
+details are in [docs/api.md](docs/api.md#hardening).
+
+## Agents: MCP, SDK, x402
+
+**MCP.** `npx hood-oracle-mcp` (or `npm run mcp`) is an MCP server over
+stdio for Claude Code, Claude Desktop and any MCP client; the engine also
+serves the same tools over Streamable HTTP at `/mcp`. Tools: `engine_status`,
+`oracle_feed`, `oracle_score`, `oracle_model`, `arms_list`, `arm_get`,
+`arm_create`, `arm_update`, `arm_enable`, `arm_disable`, `arm_kill`,
+`kill_switch`, `positions_list`, `position_close`, `trades_list`,
+`decisions_list`; resources `hood-oracle://status`, `hood-oracle://oracle/feed`
+and `hood-oracle://docs/{slug}`. Writes need the operator token. Setup and
+every tool's arguments: [docs/mcp.md](docs/mcp.md).
+
+**SDK.** [`@hood-oracle/sdk`](packages/sdk) is a typed client for every
+route with an async iterator over the SSE stream, `waitForScore`, and an
+x402 helper. [docs/sdk.md](docs/sdk.md).
+
+**x402.** `GET /api/x402/score/:token` sells one verdict for USDG on
+Robinhood Chain over the hood402 rail; set `X402_PAY_TO` to enable it.
+[docs/x402.md](docs/x402.md).
 
 ## Deploying
 
@@ -258,11 +288,13 @@ instead of a Geyser stream, and fit thresholds sized for a young chain.
 | `src/engine/` | Intake, observation window, scoring pipeline, executor, positions sweep, journal. |
 | `src/oracle/` | Features, conviction engine, fitter, bootstrap prior. |
 | `src/guards/` | Risk engine, kill switch, earned autonomy, optimizer. |
-| `src/api/` | Hono routes, operator auth, SSE, static dashboard. |
+| `src/api/` | Hono routes, shared handlers, middleware (headers, request ids, rate limit, CORS), metrics, operator auth, SSE, x402, static dashboard. |
+| `src/mcp/` | The MCP server: tools and resources over stdio and Streamable HTTP. |
+| `packages/sdk/` | `@hood-oracle/sdk`, the typed TypeScript client. |
 | `web/` | The Vite dashboard. |
 | `scripts/` | Backfill, fit and bootstrap-conversion CLIs, the house-rules checker. |
 | `tests/` | Vitest. `npm test`. |
-| `docs/` | Architecture, guardrails, oracle, arming, API, deploy. |
+| `docs/` | Architecture, guardrails, oracle, arming, API, deploy, MCP, SDK, x402. |
 
 ## Scripts
 
@@ -270,7 +302,9 @@ instead of a Geyser stream, and fit thresholds sized for a young chain.
 |---|---|
 | `npm run dev` | Engine + API with reload. |
 | `npm run dev:web` | Dashboard dev server against the running API. |
-| `npm run build` | Vite build then `tsc`; what the Dockerfile runs. |
+| `npm run build` | Vite build, `tsc`, then the SDK; what the Dockerfile runs. |
+| `npm run build:sdk` / `sync:sdk-contract` | Build `@hood-oracle/sdk`; refresh its copy of the API contract types. |
+| `npm run mcp` | The MCP server over stdio against a running engine (`HOOD_ORACLE_URL`, `OPERATOR_TOKEN`). |
 | `npm start` | `node dist/src/index.js`. |
 | `npm test` | Every vitest suite. |
 | `npm run typecheck` | `tsc --noEmit`. |

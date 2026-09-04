@@ -192,13 +192,33 @@ export class DirectLaunchIntake {
   }
 
   /**
-   * When and by whom the token was deployed. Blockscout's contract-creation
-   * record is exact (block + sender). Without it, the first mint inside the
-   * freshness window dates the token and names its deployer through the
-   * mint transaction's sender; a token with no mint in the window is either
-   * older than the window or unreadable, and both are skipped.
+   * When and by whom the token was deployed, chain first: the first mint
+   * (Transfer from the zero address) inside the freshness window dates the
+   * token, and that transaction's sender is the deployer (for every
+   * one-transaction launchpad and for a constructor mint alike). A mint older
+   * than the window dates the token outside it. Only a token with no mint in
+   * the last 200,000 blocks is asked of Blockscout's contract-creation record,
+   * so the explorer's latency never sits on the intake path. What cannot be
+   * dated is skipped and counted, never assumed fresh.
    */
   private async tokenOrigin(token: Address, poolBlock: bigint): Promise<{ kind: 'blockscout' | 'first_mint_tx'; createdBlock: bigint; creator: Address } | { kind: 'unprovable' }> {
+    const from = poolBlock > this.freshBlocks ? poolBlock - this.freshBlocks : 0n
+    try {
+      const mints = await withRpcRetry(() => this.chain.publicClient.getLogs({ address: token, event: transferEvent, args: { from: ZERO }, fromBlock: from, toBlock: poolBlock, strict: false }))
+      const first = mints[0]
+      if (first) {
+        const tx = await withRpcRetry(() => this.chain.publicClient.getTransaction({ hash: first.transactionHash as Hash }))
+        return { kind: 'first_mint_tx', createdBlock: first.blockNumber ?? poolBlock, creator: getAddress(tx.from) }
+      }
+      const older = await withRpcRetry(() => this.chain.publicClient.getLogs({ address: token, event: transferEvent, args: { from: ZERO }, fromBlock: from > 200_000n ? from - 200_000n : 0n, toBlock: from, strict: false }))
+      const old = older[0]
+      if (old) {
+        const tx = await withRpcRetry(() => this.chain.publicClient.getTransaction({ hash: old.transactionHash as Hash }))
+        return { kind: 'first_mint_tx', createdBlock: old.blockNumber ?? 0n, creator: getAddress(tx.from) }
+      }
+    } catch (err) {
+      this.log.warn({ token, err: errorText(err) }, 'mint-history lookup failed')
+    }
     try {
       const res = await fetch(`${BLOCKSCOUT}/api?module=contract&action=getcontractcreation&contractaddresses=${token}`, { headers: { 'user-agent': BROWSER_UA }, signal: AbortSignal.timeout(4_000) })
       if (res.ok) {
@@ -209,25 +229,7 @@ export class DirectLaunchIntake {
         }
       }
     } catch {
-      // fall through to chain history
-    }
-    try {
-      const from = poolBlock > this.freshBlocks ? poolBlock - this.freshBlocks : 0n
-      const mints = await withRpcRetry(() => this.chain.publicClient.getLogs({ address: token, event: transferEvent, args: { from: ZERO }, fromBlock: from, toBlock: poolBlock, strict: false }))
-      const first = mints[0]
-      if (first) {
-        const tx = await withRpcRetry(() => this.chain.publicClient.getTransaction({ hash: first.transactionHash as Hash }))
-        return { kind: 'first_mint_tx', createdBlock: first.blockNumber ?? poolBlock, creator: getAddress(tx.from) }
-      }
-      // A mint older than the window means an old token: date it as outside the window.
-      const older = await withRpcRetry(() => this.chain.publicClient.getLogs({ address: token, event: transferEvent, args: { from: ZERO }, fromBlock: from > 200_000n ? from - 200_000n : 0n, toBlock: from, strict: false }))
-      const old = older[0]
-      if (old) {
-        const tx = await withRpcRetry(() => this.chain.publicClient.getTransaction({ hash: old.transactionHash as Hash }))
-        return { kind: 'first_mint_tx', createdBlock: old.blockNumber ?? 0n, creator: getAddress(tx.from) }
-      }
-    } catch (err) {
-      this.log.warn({ token, err: errorText(err) }, 'mint-history lookup failed')
+      // the explorer is a last resort; being unreachable only means "unprovable"
     }
     return { kind: 'unprovable' }
   }

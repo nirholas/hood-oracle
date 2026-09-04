@@ -103,15 +103,43 @@ export const LAUNCHPAD_REGISTRY: readonly LaunchpadEntry[] = [
   { address: '0xba9b5ac91650a66773a69b6018f62ab0c71f97de', name: 'direct', kind: 'router', label: 'V4AtomicPipeline', dex: 'v4', verified: true, poolsInScan: 0, notes: 'Batches v4 initialize + liquidity for a caller-supplied token.' },
 ]
 
-/** v4 hook contracts that identify a launchpad when the creating tx.to is only the PositionManager. */
-export const V4_HOOK_LAUNCHPADS: ReadonlyMap<string, { name: Launchpad; label: string }> = new Map([
-  ['0xf7521cf0bb7c11e2d2794189412614cf2e29a0cc', { name: 'lunch', label: 'LunchTaxHook (176 inits in scan)' }],
-  ['0x4eb1976978756bd56802d8162f2271844924e0cc', { name: 'lunch', label: 'LunchTaxHookPair' }],
-  ['0x16d1560630ce74af4478d9b8ad46548a092a2000', { name: 'pair-v4', label: 'PairV4Hook (49 inits in scan)' }],
-  ['0x75a54357d9c78a2db19004a5fdc76c50f9242aec', { name: 'cashcat', label: 'CashCatHookV2 (41 inits in scan)' }],
-  ['0x842fe3a7d852a901c6ed27a69e3a734949c52aec', { name: 'forge', label: 'ForgeHookV4' }],
-  ['0x0310cfebe1d7a69f2414f6595bbe9d17c5342acc', { name: 'rwa-launchpad', label: 'LaunchHook' }],
+export interface V4HookEntry {
+  name: Launchpad
+  label: string
+  /** Whether the UniversalRouter exact-in swap path (src/chain/v4.ts) is known to work on this hook, from its verified source. */
+  swap: 'supported' | 'refused'
+  /** What the verified before/afterSwap does, and any condition the executor must respect. */
+  notes: string
+}
+
+/**
+ * v4 hook contracts that identify a launchpad when the creating tx.to is only
+ * the PositionManager, with the swap-path verdict read from each hook's
+ * verified source (2026-09-04). None of them reads hookData, none gates the
+ * swapper, and each taxes the quote side per swap; the tax shows up in the
+ * quoter and in the firewall's simulated round trip rather than as a revert.
+ */
+export const V4_HOOK_LAUNCHPADS: ReadonlyMap<string, V4HookEntry> = new Map([
+  ['0xf7521cf0bb7c11e2d2794189412614cf2e29a0cc', { name: 'lunch', label: 'LunchTaxHook (176 inits in scan)', swap: 'supported', notes: 'Native-ETH pools. beforeSwap/afterSwap skim buyBps/sellBps of the ETH leg (capped by MAX_SIDE_BPS) and may auto-distribute rewards in-swap; never reverts a trade.' }],
+  ['0x4eb1976978756bd56802d8162f2271844924e0cc', { name: 'lunch', label: 'LunchTaxHookPair', swap: 'supported', notes: 'Same economics on a non-ETH quote (WETH, USDG, stocks); only WETH/USDG quotes are executed here.' }],
+  ['0x16d1560630ce74af4478d9b8ad46548a092a2000', { name: 'pair-v4', label: 'PairV4Hook (49 inits in scan)', swap: 'supported', notes: 'No swap hooks at all (only initialize/liquidity authorization); swaps are plain v4 swaps.' }],
+  ['0x75a54357d9c78a2db19004a5fdc76c50f9242aec', { name: 'cashcat', label: 'CashCatHookV2 (41 inits in scan)', swap: 'supported', notes: 'Fee on the ETH leg via currentFeeRate; afterSwap reverts PartialFillRejected when an exact-in swap is not fully filled, which the firewall round trip reproduces.' }],
+  ['0x842fe3a7d852a901c6ed27a69e3a734949c52aec', { name: 'forge', label: 'ForgeHookV4', swap: 'supported', notes: 'buyFeeBps / sellFeeBps on the quote leg, registered pools only.' }],
+  ['0x0310cfebe1d7a69f2414f6595bbe9d17c5342acc', { name: 'rwa-launchpad', label: 'LaunchHook', swap: 'supported', notes: 'Quote-leg fee with referral components; hookData is an optional (referrer, comment) envelope and an empty one is accepted. Exact-OUT swaps are refused during the anti-snipe window; the executor only sends exact-in.' }],
 ])
+
+/**
+ * Swap-path verdict for a v4 pool's hook. A hook the registry has read is
+ * supported per its source; a hookless pool is plain v4; an unregistered hook
+ * is allowed only because the firewall proves the sell leg in simulation
+ * before any live buy, and that is stated in the reason.
+ */
+export function v4HookSupport(hooks: Address | null | undefined): { supported: boolean; reason: string } {
+  if (!hooks || hooks === '0x0000000000000000000000000000000000000000') return { supported: true, reason: 'hookless v4 pool' }
+  const entry = V4_HOOK_LAUNCHPADS.get(hooks.toLowerCase())
+  if (entry) return { supported: entry.swap === 'supported', reason: `${entry.label}: ${entry.notes}` }
+  return { supported: true, reason: `unregistered hook ${hooks}: no verified source was read; the firewall's simulated buy-then-sell is the only proof of a working exit` }
+}
 
 const byAddress = new Map<string, LaunchpadEntry>(LAUNCHPAD_REGISTRY.map((e) => [e.address.toLowerCase(), e]))
 

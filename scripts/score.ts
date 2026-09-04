@@ -13,6 +13,7 @@ import { existsSync } from 'node:fs'
 import { and, eq } from 'drizzle-orm'
 import { getAddress, isAddress } from 'viem'
 import { loadConfig } from '../src/config.js'
+import { holdEventLoop } from '../src/oracle/keepalive.js'
 import { createChainClient, errorText } from '../src/chain/client.js'
 import { Prices } from '../src/chain/prices.js'
 import { createDb, schema } from '../src/db/client.js'
@@ -23,6 +24,7 @@ import { createModelStore } from '../src/oracle/model-store.js'
 import { launchRecordFor, persistTape, reconstructTape, upsertLaunch } from '../src/oracle/tape.js'
 
 async function main() {
+  const release = holdEventLoop()
   const raw = process.argv.find((a) => a.startsWith('0x'))
   if (!raw || !isAddress(raw)) {
     console.error('usage: npx tsx scripts/score.ts 0xTOKEN [--persist]')
@@ -46,6 +48,7 @@ async function main() {
     if (!found) {
       console.error(`no launch found for ${token} on NOXA, The Odyssey, or a direct Uniswap v3 pool`)
       await close()
+      release()
       process.exit(1)
     }
     launch = await launchRecordFor({ history, log }, found, config.network)
@@ -75,6 +78,7 @@ async function main() {
     missing: tape.result.missing,
   }, (_k, val) => (typeof val === 'bigint' ? val.toString() : val), 2))
   await close()
+  release()
 }
 
 main().catch((err) => {

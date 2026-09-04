@@ -8,6 +8,13 @@
       "when": 1788458745219,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788484167177,
+      "tag": "0001_launchpads_default",
+      "breakpoints": true
     }
   ]
 }

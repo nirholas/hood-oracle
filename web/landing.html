@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>hood-oracle · conviction on every Robinhood Chain launch</title>
+  <meta name="description" content="An autonomous launch trader for Robinhood Chain (4663). A learning conviction oracle scores every NOXA, Odyssey and direct pool launch in its first ninety seconds; operators arm strategies behind hard guardrails; an engine executes on the sequencer feed. Simulate mode is the default." />
+  <meta name="theme-color" content="#05060c" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#f4f5f9" media="(prefers-color-scheme: light)" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="hood-oracle" />
+  <meta property="og:description" content="A learning conviction oracle for Robinhood Chain launches, arm-and-guardrail controls, sequencer-feed execution. Open source, Apache-2.0." />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:creator" content="@nichxbt" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='7' y='7' width='18' height='18' rx='4' transform='rotate(45 16 16)' fill='%23cdd2e0'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/src/landing.css" />
+</head>
+<body class="landing">
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="top">
+    <div class="top-in">
+      <a class="brand" href="/" aria-label="hood-oracle home"><i></i>hood-oracle <span class="chain" id="chainBadge">4663</span></a>
+      <nav class="nav lnav" aria-label="Sections">
+        <a href="#how">How it works</a>
+        <a href="#oracle">Oracle</a>
+        <a href="#guardrails">Guardrails</a>
+        <a href="#onchain">On-chain</a>
+        <a href="#agents">Agents</a>
+        <a href="/docs">Docs</a>
+      </nav>
+      <div class="top-right">
+        <span class="hs-item" id="hsFeed" title="Connecting to the engine"><span class="dot" id="hsFeedDot"></span><span id="hsFeedText">engine</span></span>
+        <a class="btn sm primary" href="/app">Open the app</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero-l" aria-labelledby="heroTitle">
+      <div class="hero-copy">
+        <span class="eyebrow"><span class="dot live" id="heroDot"></span><span id="heroLive">Robinhood Chain · 4663</span></span>
+        <h1 id="heroTitle">Conviction on every launch. Guardrails on every trade.</h1>
+        <p class="lede">hood-oracle holds the Robinhood Chain sequencer feed open, scores every NOXA, Odyssey and direct Uniswap v3 launch in its first ninety seconds with a conviction oracle that re-fits itself from realized outcomes, and executes only through hard, fail-closed guardrails on behalf of the strategies you arm. Simulate mode is the default and touches no funds.</p>
+        <div class="btn-row hero-cta">
+          <a class="btn primary" href="/app">Open the oracle board</a>
+          <a class="btn" href="/litepaper">Read the litepaper</a>
+          <a class="btn ghost" href="https://github.com/nirholas/hood-oracle" rel="noopener">Source on GitHub</a>
+        </div>
+        <div class="stats hero-stats" id="heroStats" aria-live="polite">
+          <div class="stat"><span>Scored · 24h</span><div class="stat-val sk" id="stScored">000</div><small id="stScoredSub">under the active model</small></div>
+          <div class="stat"><span>Launches · 24h</span><div class="stat-val sk" id="stLaunches">000</div><small>first sight, every launchpad</small></div>
+          <div class="stat"><span>Launches indexed</span><div class="stat-val sk" id="stIndexed">0000</div><small id="stIndexedSub">on this network</small></div>
+          <div class="stat"><span>Model</span><div class="stat-val sk" id="stModel">prior</div><small id="stModelSub">provenance</small></div>
+        </div>
+        <p class="stat-note" id="statNote" hidden></p>
+      </div>
+      <div class="radar-cell">
+        <div class="radar-hold">
+          <canvas id="radar" aria-label="Radar of scored launches. Each blip is a launch the oracle scored: its bearing is the tier, its distance from the center is its age."></canvas>
+          <div class="radar-legend" aria-hidden="true">
+            <span class="rl prime">prime</span><span class="rl strong">strong</span><span class="rl lean">lean</span><span class="rl watch">watch</span><span class="rl avoid">avoid</span>
+          </div>
+        </div>
+        <div class="radar-read" id="radarRead" aria-live="polite">
+          <div class="rr-k" id="rrKicker">sweep</div>
+          <div class="rr-sym" id="rrSym">Waiting for the first scored launch</div>
+          <div class="rr-sub" id="rrSub">The radar draws only launches the oracle has actually scored. Bearing is the tier, distance is age over the last 24 hours.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="tape" aria-labelledby="tapeTitle">
+      <div class="sec-head">
+        <div>
+          <span class="kicker">Live tape</span>
+          <h2 id="tapeTitle">The last twelve launches the oracle scored</h2>
+          <p class="sub">Straight from <code>GET /api/oracle/feed</code>, updated over the engine's event stream as new scores land. Click a row for the full read: features, reasons, firewall, outcome.</p>
+        </div>
+        <a class="btn sm" href="/app">Full board</a>
+      </div>
+      <div class="tape">
+        <div class="tape-head"><span class="dot" id="tapeDot"></span><span id="tapeStatus">Connecting…</span><span class="grow"></span><span id="tapeMeta"></span></div>
+        <div class="tape-list" id="feedList" aria-live="polite" aria-busy="true"></div>
+      </div>
+    </section>
+
+    <section class="sec" id="how" aria-labelledby="howTitle">
+      <div class="sec-head">
+        <div>
+          <span class="kicker">How it works</span>
+          <h2 id="howTitle">One process, six stages, nothing on the fill path touches HTTP</h2>
+          <p class="sub">A fill is a sequencer frame decoded before the block is queryable, a launch confirmed by log, up to ninety seconds of tape, a score, the guards, a real buy-then-sell simulation, and a raw transaction broadcast to every RPC in parallel.</p>
+        </div>
+      </div>
+      <figure class="flow" aria-label="Pipeline diagram">
+        <svg viewBox="0 0 1200 250" role="img" aria-labelledby="flowTitle" preserveAspectRatio="xMidYMid meet">
+          <title id="flowTitle">Sequencer feed and log watchers feed launch intake, then a ninety second observation window, then features and the oracle score; arms feed the entry gate, guards, firewall and executor; realized labels re-fit the model behind a promotion gate.</title>
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="fl-arrow"/></marker>
+          </defs>
+          <g class="fl-row">
+            <rect x="20" y="30" width="150" height="54" rx="10" class="fl-box"/><text x="95" y="52" class="fl-t">sequencer feed</text><text x="95" y="70" class="fl-s">+ log watchers</text>
+            <rect x="215" y="30" width="150" height="54" rx="10" class="fl-box"/><text x="290" y="52" class="fl-t">launch intake</text><text x="290" y="70" class="fl-s">NOXA · Odyssey · direct</text>
+            <rect x="410" y="30" width="150" height="54" rx="10" class="fl-box"/><text x="485" y="52" class="fl-t">90s observation</text><text x="485" y="70" class="fl-s">buyers, volume, holders</text>
+            <rect x="605" y="30" width="150" height="54" rx="10" class="fl-box fl-oracle"/><text x="680" y="52" class="fl-t">oracle score</text><text x="680" y="70" class="fl-s">win · rug · moon heads</text>
+            <rect x="800" y="30" width="150" height="54" rx="10" class="fl-box fl-gate"/><text x="875" y="52" class="fl-t">guardrails</text><text x="875" y="70" class="fl-s">14 checks, fail closed</text>
+            <rect x="995" y="30" width="185" height="54" rx="10" class="fl-box"/><text x="1087" y="52" class="fl-t">execution</text><text x="1087" y="70" class="fl-s">simulate first, broadcast to every RPC</text>
+            <line x1="170" y1="57" x2="213" y2="57" class="fl-line" marker-end="url(#arr)"/>
+            <line x1="365" y1="57" x2="408" y2="57" class="fl-line" marker-end="url(#arr)"/>
+            <line x1="560" y1="57" x2="603" y2="57" class="fl-line" marker-end="url(#arr)"/>
+            <line x1="755" y1="57" x2="798" y2="57" class="fl-line" marker-end="url(#arr)"/>
+            <line x1="950" y1="57" x2="993" y2="57" class="fl-line" marker-end="url(#arr)"/>
+          </g>
+          <g class="fl-row">
+            <rect x="605" y="130" width="150" height="54" rx="10" class="fl-box"/><text x="680" y="152" class="fl-t">arms</text><text x="680" y="170" class="fl-s">your knobs, in the DB</text>
+            <line x1="680" y1="130" x2="680" y2="86" class="fl-line" marker-end="url(#arr)"/>
+            <rect x="995" y="130" width="185" height="54" rx="10" class="fl-box"/><text x="1087" y="152" class="fl-t">positions sweep</text><text x="1087" y="170" class="fl-s">stops, trails, ladders, timeouts</text>
+            <line x1="1087" y1="86" x2="1087" y2="128" class="fl-line" marker-end="url(#arr)"/>
+            <rect x="215" y="130" width="345" height="54" rx="10" class="fl-box fl-learn"/><text x="387" y="152" class="fl-t">learning loop</text><text x="387" y="170" class="fl-s">24h price-independent labels · refit every 6h · promotion gate</text>
+            <path d="M995 157 H 770 M 605 157 H 562" class="fl-line" marker-end="url(#arr)"/>
+            <path d="M387 130 V 108 H 680 V 86" class="fl-line fl-dash"/>
+          </g>
+          <text x="20" y="225" class="fl-cap">Every score, decision, refusal and trade is journaled with its reason. The journal is hash-chained and verified on every read.</text>
+        </svg>
+      </figure>
+      <div class="steps">
+        <article class="step"><span class="stepno">1</span><h3>Intake</h3><p>The sequencer feed is decoded roughly 100 to 300 ms before a block is queryable. Factory calldata is matched on the frame, and the launch is confirmed by its log before anything else happens.</p></article>
+        <article class="step"><span class="stepno">2</span><h3>Observation window</h3><p>Up to ninety seconds of tape after first sight: unique buyers, volume, concentration, deployer behaviour, bundling, timing entropy. An arm chooses how much of the window to wait through.</p></article>
+        <article class="step"><span class="stepno">3</span><h3>Oracle</h3><p>A bucketed logistic model with three heads scores the snapshot 0 to 100 and tiers it. Rug risk is published beside the score, never blended in. Every verdict quotes the buckets that moved it.</p></article>
+        <article class="step"><span class="stepno">4</span><h3>Guardrails</h3><p>An ordered risk engine runs the cheapest, most fatal check first and fails closed on anything it cannot read. A refusal is journaled with its reason in plain language.</p></article>
+        <article class="step"><span class="stepno">5</span><h3>Execution</h3><p>A real buy-then-sell simulation runs before every live buy. A token that can be bought but not sold is blocked. The pre-built swap is broadcast raw to every RPC at once.</p></article>
+        <article class="step"><span class="stepno">6</span><h3>Learning loop</h3><p>Labels resolve 24 hours later and are price-independent. Every six hours a candidate is fitted on a time-split holdout and promoted only through a gate it can fail.</p></article>
+      </div>
+    </section>
+
+    <section class="sec" id="oracle" aria-labelledby="oracleTitle">
+      <div class="sec-head">
+        <div>
+          <span class="kicker">The oracle</span>
+          <h2 id="oracleTitle">A score is a probability claim, and the gate checks the claim</h2>
+          <p class="sub">The 0 to 100 ladder is a public contract. Each rung claims a minimum P(win); what moves across refits is the weight behind the rungs, never the number on the pill.</p>
+        </div>
+      </div>
+      <div id="modelBanner" class="banner model-banner" aria-live="polite"><span class="b-icon">model</span><div><span class="b-title">Loading the active model…</span><span id="modelBannerBody">Provenance, training rows and holdout metrics come from <code>GET /api/oracle/model</code>.</span></div></div>
+      <div class="oracle-grid">
+        <div class="card">
+          <h3>Tiers and what they claim</h3>
+          <p class="sub">Only prime and strong are act signals. A conviction engine that likes everything is a hype engine.</p>
+          <div class="tiers" id="tiers">
+            <div class="tier-row"><span class="tierpill tp-prime">prime</span><b class="mono">86+</b><span class="muted">P(win) at least <b class="mono" data-anchor="prime">45%</b></span></div>
+            <div class="tier-row"><span class="tierpill tp-strong">strong</span><b class="mono">72+</b><span class="muted">P(win) at least <b class="mono" data-anchor="strong">25%</b></span></div>
+            <div class="tier-row"><span class="tierpill tp-lean">lean</span><b class="mono">56+</b><span class="muted">P(win) at least <b class="mono" data-anchor="lean">12%</b></span></div>
+            <div class="tier-row"><span class="tierpill tp-watch">watch</span><b class="mono">34+</b><span class="muted">P(win) at least <b class="mono" data-anchor="watch">5%</b></span></div>
+            <div class="tier-row"><span class="tierpill tp-avoid">avoid</span><b class="mono">0+</b><span class="muted">below that</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Three heads, not one</h3>
+          <p class="sub">"This will probably run" and "this will probably take your money" are different questions. One number that averages them answers neither.</p>
+          <dl class="heads">
+            <div><dt>win</dt><dd>Did it run (2x from first sight) <em>and</em> is a first-sight holder still up? The published score anchors here.</dd></div>
+            <div><dt>rug</dt><dd>Is a first-sight holder down more than half? Published as its own number on every verdict and gated per arm.</dd></div>
+            <div><dt>moon</dt><dd>Did it run at all, whatever happened next? Kept so fits stay comparable and to show give-back risk.</dd></div>
+          </dl>
+        </div>
+        <div class="card">
+          <h3>Features, in four pillars</h3>
+          <p class="sub"><b class="mono" id="featureCount">29</b> EVM-native feature definitions measured over the ninety-second window; the banner above says how many the active model weighs. Bucketed, not sloped, because several are genuinely non-monotone.</p>
+          <div class="pillars-l" id="pillarsList">
+            <div class="pil structure"><b>structure</b><span>organic share, bundling, snipe ratio, coordination, timing entropy, holder concentration, fresh wallets, funder connectivity</span></div>
+            <div class="pil momentum"><b>momentum</b><span>unique buyers and sellers, buy/sell ratio, volumes in ETH, trade count, largest and typical buy, market cap at first sight</span></div>
+            <div class="pil pedigree"><b>pedigree</b><span>deployer buys and sells, deployer still holding, smart-money presence, creator record</span></div>
+            <div class="pil narrative"><b>narrative</b><span>classified category and how confident the classifier was</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Labels that cannot drift with the price of ETH</h3>
+          <p class="sub">Labels resolve 24 hours after first sight as ratios of two readings of the same market cap, so the price of ETH cancels out.</p>
+          <pre class="code"><code>retained      = last_market_cap / ath_market_cap
+hold_multiple = ath_multiple * retained
+
+moon = graduated OR ath_multiple &gt;= 2
+rug  = NOT graduated AND hold_multiple &lt;= 0.5
+win  = moon AND hold_multiple &gt;= 1</code></pre>
+          <p class="sub" style="margin:10px 0 0">A position the engine actually closed overrides the chart label for that token. What we got out is a better teacher than what a chart says a holder could have got.</p>
+        </div>
+      </div>
+      <div class="gate">
+        <h3>The promotion gate</h3>
+        <p class="sub">Every six hours a candidate is fitted and judged. It replaces the live model only when all of these hold; a losing candidate is archived with the reason.</p>
+        <ul class="checks">
+          <li><code>fit_complete</code> the fit reached its last epoch</li>
+          <li><code>absolute_auc</code> win holdout AUC at least 0.70</li>
+          <li><code>tier_honesty</code> every populated tier band observes at least 70% of the probability it claims</li>
+          <li><code>feature_set</code> no collapse of the feature set against the incumbent</li>
+          <li><code>no_regression_rug</code> / <code>no_regression_moon</code> neither other head regressed beyond 0.01 AUC</li>
+          <li><code>auc_gain</code> beats the incumbent by more than 0.004 AUC, the noise floor between two fits</li>
+        </ul>
+        <p class="sub"><a href="/docs/oracle">Every feature, bucket edge, and the fit, in the oracle doc</a></p>
+      </div>
+    </section>
+
+    <section class="sec" id="guardrails" aria-labelledby="guardTitle">
+      <div class="sec-head">
+        <div>
+          <span class="kicker">Guardrails</span>
+          <h2 id="guardTitle">Fourteen checks, in order, and every one fails closed</h2>
+          <p class="sub">Cheapest and most fatal first, so the journaled reason is the most meaningful one. Sells are exempt from the exposure caps, because a cap must never trap a losing position, and still honor the kill switch, cooldown and slippage bound.</p>
+        </div>
+        <a class="btn sm" href="/docs/guardrails">Guardrails doc</a>
+      </div>
+      <ol class="guards">
+        <li><code>kill_switch</code><b>Global kill switch</b><span>Tripped by SIGINT or SIGTERM, a <code>KILL</code> file, <code>GLOBAL_KILL=1</code>, or <code>POST /api/kill</code>. Halts new risk. Never sells on its own.</span></li>
+        <li><code>zero_amount</code><b>Amount</b><span>The order is 0 wei.</span></li>
+        <li><code>slippage_bound</code><b>Slippage bound</b><span>The order's slippage exceeds the arm's <code>slippageBps</code>.</span></li>
+        <li><code>cooldown</code><b>Cooldown</b><span>Less than <code>cooldownSeconds</code> since this arm's last trade. Applies to sells too.</span></li>
+        <li><code>disarmed</code><b>Arm state</b><span>The arm is disabled or its own kill switch is set.</span></li>
+        <li><code>concurrency</code><b>Concurrency</b><span><code>maxConcurrentPositions</code> are already open.</span></li>
+        <li><code>per_trade_cap</code><b>Per-trade cap</b><span>The buy exceeds <code>perTradeWei</code>, or the cap is 0.</span></li>
+        <li><code>daily_budget</code><b>Daily budget</b><span>Rolling 24h spend plus this buy exceeds <code>dailyBudgetWei</code>, or the budget is 0.</span></li>
+        <li><code>daily_loss</code><b>Daily loss breaker</b><span>Realized 24h loss reaches half the daily budget.</span></li>
+        <li><code>wallet_floor</code><b>Wallet floor</b><span>The balance could not be read, or the buy would leave less than <code>MIN_WALLET_ETH</code> plus 0.001 ETH gas headroom.</span></li>
+        <li><code>price_impact</code><b>Price impact</b><span>The quote has no impact figure, or impact exceeds <code>maxPriceImpactPct</code>. Unknown depth is refused, not assumed.</span></li>
+        <li><code>firewall</code><b>Firewall</b><span>A real simulated buy-then-sell round trip fails or loses too much.</span></li>
+        <li><code>oracle_gate</code><b>Oracle gate</b><span>Score below <code>minOracleScore</code> or rug risk above <code>maxRugRisk</code>.</span></li>
+        <li><code>entry_filter</code><b>Entry filters</b><span>Any structural, pedigree or narrative filter on the arm: buyers, creator record, deployer holding, bundle score, concentration, market-cap band, socials, dev dump, category.</span></li>
+      </ol>
+      <div class="kill-grid">
+        <div class="card"><h3>The kill switch philosophy</h3><p class="sub">A kill halts new risk. It never market-sells, unwinds or cancels anything on its own: a forced exit into thin launch liquidity during whatever caused the panic is usually worse than holding. Exits keep managing while killed. Only an API kill is clearable at runtime; a file, signal or environment kill is cleared where it was set.</p></div>
+        <div class="card"><h3>Earned autonomy</h3><p class="sub">An arm's realized live record sets its tier, and the tier bounds what the optimizer may change and how far. Trusted needs a net edge of at least +0.5% over 12 closed live trades with drawdown under 35%; autonomous needs +5% over 40 with drawdown under 25%. No tier can touch the kill switch, wallet floor, loss breaker, impact ceiling, concurrency, slippage or firewall, and every tier keeps a stop loss.</p></div>
+      </div>
+    </section>
+
+    <section class="sec" id="onchain" aria-labelledby="chainTitle">
+      <div class="sec-head">
+        <div>
+          <span class="kicker">On-chain arms</span>
+          <h2 id="chainTitle">The same guardrails, enforced by the chain, with your keys</h2>
+          <p class="sub">Server-side guardrails protect you from a bad market. They do not protect you from the server. The arm contracts in <code>contracts/</code> move the caps into a per-user managed account on Robinhood Chain, so the engine can trade for you without ever holding your funds.</p>
+        </div>
+        <span class="badge b-warn" id="contractsStatus">in development</span>
+      </div>
+      <div class="chain-grid">
+        <article class="card"><h3>A managed account per user</h3><p class="sub">You deploy your own account, deposit ETH, and name the engine's hot key as operator. The operator can only call the trade functions; the owner can withdraw at any time, positions open or not.</p></article>
+        <article class="card"><h3>Caps the operator cannot cross</h3><p class="sub">Per-trade cap, daily budget, cooldown and concurrency live in the account's policy and revert on breach. Every revert carries the numbers a human needs: <code>PerTradeCap(amountWei, capWei)</code>, <code>DailyBudget(wouldSpendWei, budgetWei)</code>, <code>Cooldown(remainingSeconds)</code>.</p></article>
+        <article class="card"><h3>Allowed router and slippage bound</h3><p class="sub">Trades route only through the router the policy names, and the caller's <code>amountOutMinimum</code> must satisfy the policy's slippage bound against the pool's current price. A router swap is refused with <code>RouterNotAllowed</code>.</p></article>
+        <article class="card"><h3>Oracle-score gate</h3><p class="sub">A policy can require a fresh, signed oracle attestation above a minimum score before the account will buy a token. Stale or expired attestations are refused. The attestation is a plain signed struct so that other contracts can consume it too.</p></article>
+        <article class="card"><h3>Kill switch and timelock</h3><p class="sub">The owner trips the kill switch and every new buy reverts with <code>KillSwitch()</code>. A change that loosens the policy queues behind a timelock; a change that tightens it applies at once.</p></article>
+        <article class="card"><h3>Fees at the contract level</h3><p class="sub">A performance fee accrues only on realized profit and is capped by the protocol at 20%, split through an on-chain splitter. There is no fee on deposits, losses or withdrawals.</p></article>
+      </div>
+      <p class="sub">The revert names mirror the <code>RefusalReason</code> vocabulary the off-chain risk engine already journals, so the dashboard maps a revert selector straight onto the reason you already know. Security model and threat analysis: <a href="/litepaper#security-and-threat-model">the litepaper</a>.</p>
+    </section>
+
+    <section class="sec" id="agents" aria-labelledby="agentsTitle">
+      <div class="sec-head">
+        <div>
+          <span class="kicker">For agents</span>
+          <h2 id="agentsTitle">The oracle is a service other agents can call</h2>
+          <p class="sub">Every read is public JSON. The agent surfaces put the same scorer behind MCP tools, a typed client and a paid endpoint, so an autonomous trader on Robinhood Chain can buy conviction instead of building it.</p>
+        </div>
+      </div>
+      <div class="agent-grid">
+        <article class="card"><span class="badge">MCP</span><h3>MCP server</h3><p class="sub">The oracle feed, a launch's full read, arm management, position closes and the kill switch as Model Context Protocol tools, over stdio (<code>npx hood-oracle-mcp</code>) or Streamable HTTP inside the engine (<code>/mcp</code>). Reads are free; writes need the operator token. <a href="/docs/mcp">MCP doc</a></p></article>
+        <article class="card"><span class="badge">SDK</span><h3>Typed client</h3><p class="sub"><code>@hood-oracle/sdk</code>: a typed client for every route, an async iterator over the SSE streams, a <code>waitForScore</code> helper, and an x402 helper that pays for a score. Its wire types are generated from the server's contract, so a renamed field fails your build instead of rendering undefined. <a href="/docs/sdk">SDK doc</a></p></article>
+        <article class="card"><span class="badge">x402</span><h3>Pay-per-score</h3><p class="sub"><code>GET /api/x402/score/:token</code> answers 402 until the request carries a signed USDG payment on Robinhood Chain, then returns the verdict, the feature snapshot and the firewall round trip. The price is published at <code>/api/x402/pricing</code>. No account, no key, no gas for the buyer. <a href="/docs/x402">x402 doc</a></p></article>
+      </div>
+      <pre class="code"><code><span class="c"># the public reads work today, no token needed; HOOD is your engine's base URL</span>
+export HOOD=http://localhost:8080
+curl -s "$HOOD/api/oracle/feed?tier=strong&amp;limit=5"
+curl -s "$HOOD/api/oracle/model"
+curl -N "$HOOD/api/oracle/stream"   <span class="c"># SSE: launch, features, score</span></code></pre>
+      <p class="sub">Route by route, with examples: <a href="/docs/api">the API reference</a>.</p>
+    </section>
+
+    <section class="sec" id="open" aria-labelledby="openTitle">
+      <div class="sec-head">
+        <div>
+          <span class="kicker">Open source</span>
+          <h2 id="openTitle">Apache-2.0, one container, your Postgres</h2>
+          <p class="sub">The engine, the API, the dashboard and this site are one Node 24 process. Run it locally against Docker Postgres in a few minutes; simulate mode is on by default and signs nothing.</p>
+        </div>
+        <a class="btn sm" href="https://github.com/nirholas/hood-oracle" rel="noopener">github.com/nirholas/hood-oracle</a>
+      </div>
+      <div class="open-grid">
+        <pre class="code"><code>git clone https://github.com/nirholas/hood-oracle.git
+cd hood-oracle
+cp .env.example .env
+docker compose up -d db         <span class="c"># Postgres 17 on localhost:5432</span>
+npm install
+npm run db:migrate
+npm run oracle:backfill -- --days 30
+npm run dev                     <span class="c"># http://localhost:8080</span></code></pre>
+        <div class="open-notes">
+          <p><b>Extracted from three.ws.</b> The conviction oracle and the guardrail layer came out of the three.ws Solana sniper and were re-fitted for an EVM chain: wei instead of lamports, ETH gas headroom instead of rent, Uniswap v3 and Odyssey curves instead of pump.fun, a sequencer feed instead of a Geyser stream. <a href="https://three.ws/oracle" rel="noopener">The Solana engine is live at three.ws/oracle</a>.</p>
+          <p><b>Docs are part of the product.</b> <a href="/docs/architecture">Architecture</a>, <a href="/docs/oracle">the oracle</a>, <a href="/docs/guardrails">guardrails</a>, <a href="/docs/arming">arming</a>, <a href="/docs/api">the API</a>, <a href="/docs/deploy">deploying</a>, and <a href="/litepaper">the litepaper</a>.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="lfoot">
+    <div class="lfoot-in">
+      <div class="disclaimer">
+        <b>Risk disclaimer.</b> This software can autonomously sign and broadcast real transactions with real funds when an arm is in live mode. Trading is risky. Most new token launches go to zero. Thin pools move against you, a bonding curve can be bought but not sold, and software has bugs. There are no guarantees, no warranty, and no recovery for funds lost to a bug, a bad market, or a misconfigured guardrail. Simulate mode is the default for every arm and touches no funds; live mode requires a server key and an explicit per-arm write, and the API refuses to arm anything without a stop loss. Scores are probabilities under a model, not promises. Nothing here is financial advice. You are responsible for every transaction this software signs on your behalf.
+      </div>
+      <div class="lfoot-meta">
+        <span>hood-oracle · Robinhood Chain 4663 · Apache-2.0</span>
+        <span><a href="https://github.com/nirholas/hood-oracle" rel="noopener">GitHub</a> · <a href="/docs">Docs</a> · <a href="/litepaper">Litepaper</a> · <a href="/app">App</a></span>
+        <span>built by <a href="https://x.com/nichxbt" rel="noopener">@nichxbt</a> · a sibling of <a href="https://three.ws" rel="noopener">three.ws</a> · not affiliated with Robinhood Markets</span>
+      </div>
+    </div>
+  </footer>
+  <script type="module" src="/src/landing.ts"></script>
+</body>
+</html>

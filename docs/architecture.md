@@ -28,7 +28,9 @@ log watchers ───┼─▶ launch intake ─▶ 90s observation ─▶ feat
 | `src/engine/` | launch intake, observation window, feature extraction, scoring pipeline, executor, positions sweep, exit ladder, journal, alerts, jobs scheduler | the trading loop |
 | `src/oracle/` | conviction model (pure), fitter (pure), model store, calibration, labels, refit job, narrative classifier, bootstrap model | feature-in / score-out, no I/O in the pure parts |
 | `src/guards/` | risk engine, kill switch, earned autonomy, optimizer, firewall | fail closed |
-| `src/api/` | Hono app, routes, auth, SSE, static dashboard | operator token on writes |
+| `src/api/` | Hono app, routes, shared handlers (`handlers/`), middleware (`middleware/`: request id, security headers, access log, CORS, rate limit, body limit), metrics, auth, SSE, x402, static dashboard | operator token on writes; the same handlers serve HTTP and MCP |
+| `src/mcp/` | the MCP server: tools and resources over stdio (`stdio.ts`, talks to a running engine over HTTP) and Streamable HTTP (`/mcp`, in-process) | write tools gated by the operator token |
+| `packages/sdk/` | `@hood-oracle/sdk`: typed client, SSE iterator, `waitForScore`, x402 helper | its types are a generated copy of `src/api/contract.ts` |
 | `web/` | Vite dashboard: oracle board, arm page, positions tape | vanilla TS modules, no framework |
 | `scripts/` | backfill, fit, score CLIs | same modules as the engine |
 | `tests/` | vitest | pure logic is unit-tested; chain code has integration tests behind `RPC_URLS` |
@@ -44,7 +46,13 @@ log watchers ───┼─▶ launch intake ─▶ 90s observation ─▶ feat
 5. kill switch armed (SIGINT/SIGTERM, `KILL` file, `POST /api/kill`, `GLOBAL_KILL` env)
 6. engine: feed, watchers, observation windows, scorer, executor, positions sweep (2s)
 7. jobs: realized labels (30m), calibration (6h), refit (6h), optimizer (6h), equity marks (60s)
-8. Hono API on `PORT`, serving `web/dist`
+8. Hono API on `PORT`, serving `web/dist`, `/mcp`, `/api/metrics` and `/api/ready`
+
+Shutdown on SIGTERM or SIGINT: the listener stops accepting connections,
+the engine stops, the oracle jobs stop, the database pool closes, exit 0; a
+shutdown that does not finish inside 25 seconds exits 1. An unhandled
+rejection or uncaught exception is logged with its module and the process
+exits non-zero so the platform restarts a clean one.
 
 ## Latency path
 
@@ -125,3 +133,6 @@ image beside Postgres 17.
 - [arming.md](arming.md): simulate, read the ledger, go live, earn autonomy
 - [api.md](api.md): every route with examples
 - [deploy.md](deploy.md): Cloud Run, secrets, the accelerator RPC, rollback
+- [mcp.md](mcp.md): the MCP server, every tool, client configuration
+- [sdk.md](sdk.md): the TypeScript client
+- [x402.md](x402.md): pay-per-score with USDG on Robinhood Chain
