@@ -2,13 +2,14 @@
 
 hood-oracle is an autonomous launch trader for Robinhood Chain (chain id
 4663): a conviction oracle that scores every new token launch, from any of
-the 17 launchpads its intake registers, in its first ninety seconds and learns from what those launches actually did, a set of
-guardrails that no strategy, model or optimizer can loosen past what the
-operator bounded, an execution path that starts on the sequencer feed rather
-than on a block, and a set of on-chain contracts that move the guardrails
-into a per-user account so the engine can trade for you without ever holding
-your funds. This document is the whole protocol in one place, written for an
-investor and for a builder who has never opened the repository. Everything it
+the 17 launchpads its intake registers, in its first ninety seconds and
+learns from what those launches actually did, a set of guardrails that no
+strategy, model or optimizer can loosen past what the operator bounded, an
+execution path that starts on the sequencer feed rather than on a block, and
+a set of on-chain contracts that move the guardrails into a per-user account
+so the engine can trade for you without ever holding your funds. This
+document is the whole protocol in one place, written for an investor and for
+a builder who has never opened the repository. Everything it
 quotes is a number in the code, a threshold in a gate, or a rule the
 documentation already enforces; where a number is not yet real, the text says
 what is measured instead.
