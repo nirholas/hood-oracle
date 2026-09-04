@@ -58,43 +58,59 @@ const makeTransport = (url: string) =>
     : throttled(http(url, { timeout: 20_000, retryCount: 2 }))
 
 /**
- * Process-wide pacing for HTTP JSON-RPC: at most `MAX_IN_FLIGHT` requests at
- * once and a short gap between dispatches. The public endpoint answers bursts
- * with 429 and Cloudflare challenges; spreading the same requests over a few
- * hundred milliseconds keeps them under its limit without changing what is
- * asked. Live trading paths issue a handful of calls at a time and are not
- * slowed by it; bulk history reads are.
+ * Process-wide pacing for HTTP JSON-RPC, by compute class.
+ *
+ * The public Robinhood Chain endpoint budgets execution calls separately from
+ * cheap reads: measured 2026-09-04, a host that has spent its execution
+ * budget gets 429 on `eth_call` and `eth_simulateV1` within 100ms while
+ * `eth_blockNumber` and `eth_chainId` still answer 200. So heavy methods get
+ * their own tight lane (few in flight, a real gap between dispatches) and
+ * light methods keep a wider one. This spreads the same requests over time
+ * without changing what is asked; a fill path issues a handful of calls and
+ * is barely affected, while bulk history and firewall simulations are paced.
  */
-const MAX_IN_FLIGHT = 6
-const MIN_GAP_MS = 25
-let inFlight = 0
-let lastDispatch = 0
-const waiters: (() => void)[] = []
+const HEAVY_METHODS = /^(eth_call|eth_simulateV1|eth_estimateGas|eth_getLogs|eth_createAccessList|debug_)/
 
-async function acquire(): Promise<void> {
-  if (inFlight >= MAX_IN_FLIGHT) await new Promise<void>((resolve) => waiters.push(resolve))
-  inFlight++
-  const gap = lastDispatch + MIN_GAP_MS - Date.now()
-  if (gap > 0) await sleep(gap)
-  lastDispatch = Date.now()
+interface Lane {
+  maxInFlight: number
+  minGapMs: number
+  inFlight: number
+  lastDispatch: number
+  waiters: (() => void)[]
 }
 
-function release(): void {
-  inFlight--
-  const next = waiters.shift()
+const lanes: Record<'heavy' | 'light', Lane> = {
+  heavy: { maxInFlight: 2, minGapMs: 120, inFlight: 0, lastDispatch: 0, waiters: [] },
+  light: { maxInFlight: 6, minGapMs: 25, inFlight: 0, lastDispatch: 0, waiters: [] },
+}
+
+const laneFor = (method: string): Lane => (HEAVY_METHODS.test(method) ? lanes.heavy : lanes.light)
+
+async function acquire(lane: Lane): Promise<void> {
+  if (lane.inFlight >= lane.maxInFlight) await new Promise<void>((resolve) => lane.waiters.push(resolve))
+  lane.inFlight++
+  const gap = lane.lastDispatch + lane.minGapMs - Date.now()
+  if (gap > 0) await sleep(gap)
+  lane.lastDispatch = Date.now()
+}
+
+function release(lane: Lane): void {
+  lane.inFlight--
+  const next = lane.waiters.shift()
   if (next) next()
 }
 
-/** Wrap a viem transport so every request passes through the pacing gate. */
+/** Wrap a viem transport so every request passes through the pacing gate for its compute class. */
 function throttled(inner: Transport): Transport {
   return (config) => {
     const built = inner(config)
     const request: EIP1193RequestFn = (async (args: Parameters<EIP1193RequestFn>[0], options?: Parameters<EIP1193RequestFn>[1]) => {
-      await acquire()
+      const lane = laneFor((args as { method?: string }).method ?? '')
+      await acquire(lane)
       try {
         return await built.request(args as never, options as never)
       } finally {
-        release()
+        release(lane)
       }
     }) as EIP1193RequestFn
     return custom({ request }, { key: built.config.key, name: built.config.name, retryCount: 0 })(config)
