@@ -67,6 +67,7 @@ export function rowToArm(r: ArmRow): Arm {
     autonomyTier: r.autonomyTier as AutonomyTier,
     telegramChatId: r.telegramChatId,
     experimentGroup: r.experimentGroup,
+    accountId: r.accountId,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   }

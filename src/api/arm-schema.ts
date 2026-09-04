@@ -158,6 +158,7 @@ export function defaultArm(network: Network): Arm {
     autonomyTier: 'standard',
     telegramChatId: null,
     experimentGroup: null,
+    accountId: null,
     createdAt: now,
     updatedAt: now,
   }

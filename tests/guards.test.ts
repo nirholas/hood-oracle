@@ -81,6 +81,7 @@ function makeArm(over: Partial<Arm> = {}): Arm {
     autonomyTier: 'standard',
     telegramChatId: null,
     experimentGroup: null,
+    accountId: null,
     createdAt: now,
     updatedAt: now,
     ...over,

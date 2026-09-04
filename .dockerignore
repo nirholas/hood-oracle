@@ -11,6 +11,10 @@ KILL
 coverage
 .vite
 tests
+contracts/out
+contracts/cache
+contracts/dependencies
+contracts/broadcast
 README.md
 LICENSE
 cloudbuild.yaml

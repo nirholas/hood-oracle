@@ -5,6 +5,7 @@
 import { sql } from 'drizzle-orm'
 import {
   pgTable, text, boolean, integer, numeric, timestamp, jsonb, uuid, real, index, uniqueIndex, primaryKey,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core'
 
 const wei = (name: string) => numeric(name, { precision: 40, scale: 0 })
@@ -52,9 +53,15 @@ export const arms = pgTable('arms', {
   autonomyTier: text('autonomy_tier').notNull().default('standard'),
   telegramChatId: text('telegram_chat_id'),
   experimentGroup: text('experiment_group'),
+  /**
+   * The on-chain HoodArmAccount this arm trades from. NULL is the legacy
+   * operator-key arm: it keeps working exactly as it always has, funded by
+   * TRADER_PRIVATE_KEY and gated by the operator token alone.
+   */
+  accountId: uuid('account_id').references((): AnyPgColumn => accounts.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-})
+}, (t) => [index('arms_account_idx').on(t.accountId)])
 
 export const launches = pgTable('launches', {
   token: text('token').notNull(),
@@ -232,3 +239,76 @@ export const creatorStats = pgTable('creator_stats', {
   lastLaunchAt: timestamp('last_launch_at', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [primaryKey({ columns: [t.creator, t.network] })])
+
+/**
+ * One user's on-chain arm account (a HoodArmAccount clone). The row is a
+ * CACHE of chain state, never the source of truth: `policy`, the balances and
+ * `operator_address` are refreshed from the account contract, and a mismatch
+ * between `operator_address` and the engine's own key flips `status` to
+ * 'revoked'. Nothing here can widen what the chain allows.
+ */
+export const accounts = pgTable('accounts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  /** The wallet that created the account and can withdraw from it, lowercase. */
+  ownerAddress: text('owner_address').notNull(),
+  /** The clone address that holds the funds, lowercase. */
+  accountAddress: text('account_address').notNull(),
+  chainId: integer('chain_id').notNull(),
+  factoryAddress: text('factory_address').notNull(),
+  deployedTx: text('deployed_tx'),
+  operatorAddress: text('operator_address'),
+  /** pending | active | revoked */
+  status: text('status').notNull().default('pending'),
+  /** Owner-supplied name for the account picker. */
+  label: text('label'),
+  /** Snapshot of the on-chain Policy struct, wei fields as decimal strings. */
+  policy: jsonb('policy').$type<Record<string, unknown> | null>(),
+  revokedReason: text('revoked_reason'),
+  ethBalanceWei: wei('eth_balance_wei').notNull().default('0'),
+  wethBalanceWei: wei('weth_balance_wei').notNull().default('0'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+}, (t) => [
+  uniqueIndex('accounts_address_uidx').on(t.accountAddress, t.chainId),
+  index('accounts_owner_idx').on(t.ownerAddress, t.chainId),
+  index('accounts_status_idx').on(t.status, t.lastSyncedAt),
+])
+
+/**
+ * Wallet sign-in sessions (EIP-4361). The browser holds `<id>.<secret>.<sig>`
+ * in an HttpOnly cookie; only the SHA-256 of the secret is stored, so a
+ * database leak cannot be replayed as a login. `user_agent_hash` is a salted
+ * digest, never the raw header.
+ */
+export const sessions = pgTable('sessions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  address: text('address').notNull(),
+  tokenHash: text('token_hash').notNull(),
+  chainId: integer('chain_id').notNull(),
+  issuedAt: timestamp('issued_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  userAgentHash: text('user_agent_hash'),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+}, (t) => [
+  uniqueIndex('sessions_token_uidx').on(t.tokenHash),
+  index('sessions_address_idx').on(t.address, t.expiresAt),
+  index('sessions_expiry_idx').on(t.expiresAt),
+])
+
+/**
+ * Single-use EIP-4361 nonces. Each one is bound to the pre-auth cookie that
+ * carried it (`secret_hash`), so a nonce observed in transit cannot be
+ * replayed from another browser, and consumed exactly once.
+ */
+export const authNonces = pgTable('auth_nonces', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  nonce: text('nonce').notNull(),
+  secretHash: text('secret_hash').notNull(),
+  issuedAt: timestamp('issued_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  consumedAt: timestamp('consumed_at', { withTimezone: true }),
+}, (t) => [
+  uniqueIndex('auth_nonces_nonce_uidx').on(t.nonce),
+  index('auth_nonces_expiry_idx').on(t.expiresAt),
+])

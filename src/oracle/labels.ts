@@ -37,12 +37,19 @@ import { errorText } from '../chain/client.js'
 import { rowToLaunch } from '../engine/observe.js'
 import type { Logger } from '../log.js'
 import type { Network } from '../types.js'
-import type { OracleHistory } from './history.js'
+import { BLOCKS_PER_SECOND, type OracleHistory } from './history.js'
 
 export const LABEL_VERSION = 1
 export const LABEL_HORIZON_MS = 86_400_000
 export const MOON_ATH_MULTIPLE = 2
 export const RUG_HOLD_MULTIPLE = 0.5
+
+/**
+ * Blocks spanning the label horizon, with a 3% margin. Robinhood Chain
+ * produces a block every 0.1045 s (measured 2026-09-03 over 100,000 blocks),
+ * so 24 hours is about 827,000 blocks.
+ */
+export const HORIZON_BLOCKS = BigInt(Math.ceil((LABEL_HORIZON_MS / 1000) * BLOCKS_PER_SECOND * 1.03))
 
 export interface PathPoint {
   /** Wall-clock ms. */
@@ -119,7 +126,13 @@ export async function resolveLabels({
     const token = launch.token
     try {
       const firstSeenMs = launch.firstSeenAt.getTime()
-      const horizonBlock = await history.blockAtTime(firstSeenMs + LABEL_HORIZON_MS)
+      // The horizon block is estimated from the chain's constant block time
+      // rather than searched for. A secant search costs about fourteen block
+      // headers per token, and it buys nothing: labelFromPath filters the
+      // path by real timestamps, so an over-wide block range is trimmed to
+      // the exact 24 hours anyway. The margin makes the range an over-estimate
+      // on purpose, because a short one would truncate the horizon.
+      const horizonBlock = launch.blockNumber + HORIZON_BLOCKS
       const toBlock = horizonBlock > head ? head : horizonBlock
       const path = await history.pricePath(launch, launch.blockNumber, toBlock)
       // Most launchpads lock the LP forever, so liquidity only reads zero

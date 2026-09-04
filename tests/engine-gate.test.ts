@@ -15,7 +15,7 @@ const arm = (over: Partial<Arm> = {}): Arm => ({
   minOracleScore: null, maxRugRisk: null, minUniqueBuyers: null, maxCreatorLaunches: null, maxDeployerPct: null, maxBundleScore: null, maxConcentrationTop1: null, minMarketCapEth: null, maxMarketCapEth: null,
   requireSocials: false, avoidDevDump: false, allowedCategories: null, stopLossPct: 30, takeProfitPct: null, trailingStopPct: null, maxHoldSeconds: 1800, liquidityDecaySeconds: null,
   initialsOutMultiple: 2, moonbagMinPct: 15, moonbagAlways: true, decisionMode: 'rules', llmMinConfidence: null, autoOptimize: false, autonomyTier: 'standard', telegramChatId: null, experimentGroup: null,
-  createdAt: new Date(), updatedAt: new Date(), ...over,
+  accountId: null, createdAt: new Date(), updatedAt: new Date(), ...over,
 })
 const snapshot = (over: Partial<ReturnType<typeof emptyFeatures>> = {}): FeatureSnapshot => ({
   token: A(1), network: 'mainnet', observedAt: new Date(), windowSeconds: 5, features: { ...emptyFeatures('meme'), unique_buyers: 5, creator_launches: 1, deployer_holding_pct: 0.1, bundle_score: 0.2, concentration_top1: 0.3, dev_sold: false, mc_eth_first_seen: 50, ...over }, missing: [],

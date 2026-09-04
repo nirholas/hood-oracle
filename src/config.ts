@@ -3,6 +3,7 @@
  * reads from the environment lives here so a misconfiguration fails at boot
  * with a readable message instead of mid-trade.
  */
+import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import type { Network } from './types.js'
 
@@ -42,6 +43,16 @@ const schema = z.object({
   X402_SCORE_PRICE_USDG: z.string().trim().regex(/^\d+(\.\d{1,6})?$/, 'expected a USDG amount such as 0.05').default('0.05'),
   /** hood402 facilitator that verifies and settles USDG payments. */
   X402_FACILITATOR_URL: z.string().url().default('https://facilitator.hood402.dev'),
+  /** HoodArmFactory address on this chain. Unset disables the multi-tenant account surface. */
+  HOOD_ARM_FACTORY: z.string().optional(),
+  /** HoodOracleAttestations address. Read from the factory when unset. */
+  HOOD_ATTESTATIONS: z.string().optional(),
+  /** Key the engine signs oracle attestations with, for accounts whose policy sets minOracleScore > 0. */
+  ATTESTATION_PRIVATE_KEY: z.string().optional(),
+  /** HMAC key for wallet session cookies. Unset means a fresh random key per boot (sessions end at restart). */
+  SESSION_SECRET: z.string().optional(),
+  /** Comma-separated domains a Sign-In With Ethereum message may claim. Empty means only the request's own host. */
+  SIWE_DOMAINS: z.string().optional().default(''),
 })
 
 export type Config = {
@@ -64,6 +75,19 @@ export type Config = {
   trustProxy: boolean
   corsOrigins: string[]
   x402: { payTo: `0x${string}` | null; scorePriceUsdg: string; facilitatorUrl: string }
+  /**
+   * The multi-tenant, non-custodial surface. `factory` unset disables it:
+   * account routes answer 503 and every existing operator-token flow is
+   * untouched. See docs/multi-tenant.md.
+   */
+  accounts: {
+    factory: `0x${string}` | null
+    attestations: `0x${string}` | null
+    attestationPrivateKey: `0x${string}` | null
+    sessionSecret: string
+    /** Domains a SIWE message may claim; empty means the request's own host only. */
+    siweDomains: string[]
+  }
 }
 
 export const PUBLIC_RPC: Record<Network, string> = {
@@ -90,6 +114,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (key && !/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error('TRADER_PRIVATE_KEY must be a 0x-prefixed 32-byte hex key')
   const payTo = e.X402_PAY_TO?.trim()
   if (payTo && !/^0x[0-9a-fA-F]{40}$/.test(payTo)) throw new Error('X402_PAY_TO must be a 0x-prefixed 20-byte address')
+  const address = (raw: string | undefined, name: string): `0x${string}` | null => {
+    const v = raw?.trim()
+    if (!v) return null
+    if (!/^0x[0-9a-fA-F]{40}$/.test(v)) throw new Error(`${name} must be a 0x-prefixed 20-byte address`)
+    return v as `0x${string}`
+  }
+  const attestationKey = e.ATTESTATION_PRIVATE_KEY?.trim()
+  if (attestationKey && !/^0x[0-9a-fA-F]{64}$/.test(attestationKey)) {
+    throw new Error('ATTESTATION_PRIVATE_KEY must be a 0x-prefixed 32-byte hex key')
+  }
   return {
     databaseUrl: e.DATABASE_URL,
     network: e.HOOD_NETWORK,
@@ -110,5 +144,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     trustProxy: e.TRUST_PROXY,
     corsOrigins: e.CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean),
     x402: { payTo: payTo ? (payTo as `0x${string}`) : null, scorePriceUsdg: e.X402_SCORE_PRICE_USDG, facilitatorUrl: e.X402_FACILITATOR_URL },
+    accounts: {
+      factory: address(e.HOOD_ARM_FACTORY, 'HOOD_ARM_FACTORY'),
+      attestations: address(e.HOOD_ATTESTATIONS, 'HOOD_ATTESTATIONS'),
+      attestationPrivateKey: attestationKey ? (attestationKey as `0x${string}`) : null,
+      sessionSecret: e.SESSION_SECRET?.trim() || randomBytes(32).toString('hex'),
+      siweDomains: e.SIWE_DOMAINS.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
+    },
   }
 }

@@ -18,7 +18,7 @@ export function rowToArm(r: typeof arms.$inferSelect): Arm {
     avoidDevDump: r.avoidDevDump, allowedCategories: r.allowedCategories as Arm['allowedCategories'], stopLossPct: r.stopLossPct, takeProfitPct: r.takeProfitPct, trailingStopPct: r.trailingStopPct,
     maxHoldSeconds: r.maxHoldSeconds, liquidityDecaySeconds: r.liquidityDecaySeconds, initialsOutMultiple: r.initialsOutMultiple, moonbagMinPct: r.moonbagMinPct, moonbagAlways: r.moonbagAlways,
     decisionMode: r.decisionMode as Arm['decisionMode'], llmMinConfidence: r.llmMinConfidence, autoOptimize: r.autoOptimize, autonomyTier: r.autonomyTier as Arm['autonomyTier'],
-    telegramChatId: r.telegramChatId, experimentGroup: r.experimentGroup, createdAt: r.createdAt, updatedAt: r.updatedAt,
+    telegramChatId: r.telegramChatId, experimentGroup: r.experimentGroup, accountId: r.accountId, createdAt: r.createdAt, updatedAt: r.updatedAt,
   }
 }
 
