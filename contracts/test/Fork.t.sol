@@ -85,15 +85,12 @@ contract HoodArmForkTest is Test {
     }
 
     function _quote(address tokenIn, address tokenOut, uint256 amountIn) internal returns (uint256 out) {
-        (out,,,) = IQuoterV2(QUOTER).quoteExactInputSingle(
-            IQuoterV2.QuoteExactInputSingleParams({
-                tokenIn: tokenIn,
-                tokenOut: tokenOut,
-                amountIn: amountIn,
-                fee: FEE,
-                sqrtPriceLimitX96: 0
+        (out,,,) = IQuoterV2(QUOTER)
+            .quoteExactInputSingle(
+                IQuoterV2.QuoteExactInputSingleParams({
+                tokenIn: tokenIn, tokenOut: tokenOut, amountIn: amountIn, fee: FEE, sqrtPriceLimitX96: 0
             })
-        );
+            );
     }
 
     /// @dev 1% under the live quote: inside the 3% policy bound and above real impact for this size.
@@ -149,8 +146,9 @@ contract HoodArmForkTest is Test {
         vm.startPrank(whale);
         IWETH9(WETH).deposit{value: 400 ether}();
         IERC20(WETH).approve(ROUTER, 400 ether);
-        ISwapRouter02(ROUTER).exactInputSingle(
-            ISwapRouter02.ExactInputSingleParams({
+        ISwapRouter02(ROUTER)
+            .exactInputSingle(
+                ISwapRouter02.ExactInputSingleParams({
                 tokenIn: WETH,
                 tokenOut: USDG,
                 fee: FEE,
@@ -159,7 +157,7 @@ contract HoodArmForkTest is Test {
                 amountOutMinimum: 0,
                 sqrtPriceLimitX96: 0
             })
-        );
+            );
         vm.stopPrank();
 
         uint256 sellMin = _minOut(USDG, WETH, got);

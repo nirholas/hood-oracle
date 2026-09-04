@@ -377,7 +377,10 @@ export function createOracleHistory({ chain, prices, log }: { chain: ChainClient
     const ethUsd = needsUsd ? await prices.ethUsd() : null
     const all: TapeTrade[] = []
     for (const source of sources) {
-      all.push(...(await patient('trades', () => getTokenTrades(client, launch.token, source, fromBlock, toBlock, { chunk: 50_000n, maxChunk: 2_000_000n, ethUsd }))))
+      // One request covers a whole 24-hour label horizon (about 827k blocks):
+      // a single token's pool emits far fewer than the RPC's 10k-log cap, and
+      // the chunker halves the range by itself if a busy token ever exceeds it.
+      all.push(...(await patient('trades', () => getTokenTrades(client, launch.token, source, fromBlock, toBlock, { chunk: 1_000_000n, maxChunk: 2_000_000n, ethUsd }))))
     }
     return all.sort((a, b) => (a.block !== b.block ? (a.block < b.block ? -1 : 1) : a.txIndex !== b.txIndex ? a.txIndex - b.txIndex : a.logIndex - b.logIndex))
   }

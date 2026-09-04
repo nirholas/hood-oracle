@@ -174,6 +174,19 @@ export function isTransientRpcError(err: unknown): boolean {
   return false
 }
 
+/**
+ * viem's multicall with allowFailure turns a failed aggregate call (a 429, a
+ * challenge page) into per-call `failure` entries instead of throwing, which
+ * hides the outage from the retry wrapper. Call this on the results: when
+ * every entry failed and the failure is a transient transport condition, the
+ * multicall as a whole is treated as failed and thrown so it is retried.
+ */
+export function throwIfAllTransient(results: readonly { status: 'success' | 'failure'; error?: unknown }[]): void {
+  if (!results.length || results.some((r) => r.status === 'success')) return
+  const err = results[0]!.error
+  if (isTransientRpcError(err)) throw err
+}
+
 /** The RPC refused the log query because too many logs matched or it ran too long: shrink the range. */
 export function isLogRangeTooWide(err: unknown): boolean {
   let e: unknown = err

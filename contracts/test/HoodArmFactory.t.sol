@@ -6,23 +6,46 @@ import {HoodArmAccount} from "../src/HoodArmAccount.sol";
 import {HoodArmFactory} from "../src/HoodArmFactory.sol";
 import {IHoodArmFactory} from "../src/interfaces/IHoodArmFactory.sol";
 import {Policy} from "../src/libraries/PolicyLib.sol";
-import {FeeTooHigh, InvalidPolicy, KillSwitch, NothingPending, Timelocked, ZeroAddress} from "../src/libraries/HoodErrors.sol";
+import {
+    FeeTooHigh,
+    InvalidPolicy,
+    KillSwitch,
+    NothingPending,
+    Timelocked,
+    ZeroAddress
+} from "../src/libraries/HoodErrors.sol";
 import {HoodFixture} from "./utils/Fixture.sol";
 
 contract HoodArmFactoryTest is HoodFixture {
     function test_constructorValidates() public {
         vm.expectRevert(ZeroAddress.selector);
-        new HoodArmFactory(protocolOwner, address(0), address(attestations), address(weth), feeRecipient, 100, basePolicy);
+        new HoodArmFactory(
+            protocolOwner, address(0), address(attestations), address(weth), feeRecipient, 100, basePolicy
+        );
         vm.expectRevert(ZeroAddress.selector);
-        new HoodArmFactory(protocolOwner, address(implementation), address(attestations), address(0), feeRecipient, 100, basePolicy);
+        new HoodArmFactory(
+            protocolOwner, address(implementation), address(attestations), address(0), feeRecipient, 100, basePolicy
+        );
         vm.expectRevert(ZeroAddress.selector);
-        new HoodArmFactory(protocolOwner, address(implementation), address(attestations), address(weth), address(0), 100, basePolicy);
+        new HoodArmFactory(
+            protocolOwner, address(implementation), address(attestations), address(weth), address(0), 100, basePolicy
+        );
         vm.expectRevert(abi.encodeWithSelector(FeeTooHigh.selector, 2_001, 2_000));
-        new HoodArmFactory(protocolOwner, address(implementation), address(attestations), address(weth), feeRecipient, 2_001, basePolicy);
+        new HoodArmFactory(
+            protocolOwner,
+            address(implementation),
+            address(attestations),
+            address(weth),
+            feeRecipient,
+            2_001,
+            basePolicy
+        );
         Policy memory bad = basePolicy;
         bad.quoteToken = address(0);
         vm.expectRevert(abi.encodeWithSelector(InvalidPolicy.selector, "quoteToken"));
-        new HoodArmFactory(protocolOwner, address(implementation), address(attestations), address(weth), feeRecipient, 100, bad);
+        new HoodArmFactory(
+            protocolOwner, address(implementation), address(attestations), address(weth), feeRecipient, 100, bad
+        );
     }
 
     function test_constructorState() public view {

@@ -58,7 +58,9 @@ contract HoodOracleAttestations is IHoodOracleAttestations, EIP712, Ownable2Step
         if (attestation.score > MAX_SCORE) revert InvalidAttestation("score");
         if (attestation.rugRiskBps > MAX_RUG_RISK_BPS) revert InvalidAttestation("rugRiskBps");
         if (attestation.observedAt > attestation.expiresAt) revert InvalidAttestation("observedAt");
-        if (attestation.expiresAt <= block.timestamp) revert AttestationExpired(attestation.expiresAt, block.timestamp);
+        if (attestation.expiresAt <= block.timestamp) {
+            revert AttestationExpired(attestation.expiresAt, block.timestamp);
+        }
         if (!verify(attestation, signature)) revert InvalidSignature();
 
         Attestation storage stored = _latest[attestation.token];

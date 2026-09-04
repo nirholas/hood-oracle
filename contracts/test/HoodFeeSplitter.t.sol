@@ -5,7 +5,14 @@ import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {HoodFeeSplitter} from "../src/HoodFeeSplitter.sol";
 import {IHoodFeeSplitter} from "../src/interfaces/IHoodFeeSplitter.sol";
-import {DuplicatePayee, NoShares, NothingDue, PayeesMismatch, ZeroAddress, ZeroAmount} from "../src/libraries/HoodErrors.sol";
+import {
+    DuplicatePayee,
+    NoShares,
+    NothingDue,
+    PayeesMismatch,
+    ZeroAddress,
+    ZeroAmount
+} from "../src/libraries/HoodErrors.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 
 contract HoodFeeSplitterTest is Test {

@@ -6,7 +6,14 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IHoodFeeSplitter} from "./interfaces/IHoodFeeSplitter.sol";
-import {DuplicatePayee, NoShares, NothingDue, PayeesMismatch, ZeroAddress, ZeroAmount} from "./libraries/HoodErrors.sol";
+import {
+    DuplicatePayee,
+    NoShares,
+    NothingDue,
+    PayeesMismatch,
+    ZeroAddress,
+    ZeroAmount
+} from "./libraries/HoodErrors.sol";
 
 /// @title HoodFeeSplitter
 /// @notice Pull-payment splitter for protocol fees. The payee set and shares

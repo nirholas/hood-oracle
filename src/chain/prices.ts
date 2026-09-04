@@ -9,7 +9,7 @@
  */
 import { type Address, formatUnits } from 'viem'
 import { odysseyBondingPoolAbi, odysseyCurveAbi, odysseyReflectionPoolAbi, quoterV2Abi, uniswapV3FactoryAbi, uniswapV3PoolAbi } from './abis.js'
-import { withRpcRetry } from './client.js'
+import { throwIfAllTransient, withRpcRetry } from './client.js'
 import type { ChainClient } from './client.js'
 import { V4, quoteUnitsToWei, weiToQuoteUnits, type V4Pool } from './v4.js'
 
@@ -97,16 +97,24 @@ export class Prices {
   private async ethUsdPool(): Promise<Address | null> {
     if (this.referencePool && Date.now() - this.referencePool.at < 600_000) return this.referencePool.pool
     const { weth, usdg, uniswapV3Factory } = this.chain.addresses
-    const pools = await withRpcRetry(() => this.chain.publicClient.multicall({
-      contracts: [100, 500, 3000].map((fee) => ({ address: uniswapV3Factory, abi: uniswapV3FactoryAbi, functionName: 'getPool' as const, args: [weth, usdg, fee] as const })),
-      allowFailure: true,
-    }))
+    const pools = await withRpcRetry(async () => {
+      const r = await this.chain.publicClient.multicall({
+        contracts: [100, 500, 3000].map((fee) => ({ address: uniswapV3Factory, abi: uniswapV3FactoryAbi, functionName: 'getPool' as const, args: [weth, usdg, fee] as const })),
+        allowFailure: true,
+      })
+      throwIfAllTransient(r)
+      return r
+    })
     const candidates = pools.filter((p) => p.status === 'success' && p.result !== ZERO).map((p) => p.result as Address)
     if (!candidates.length) return null
-    const liq = await withRpcRetry(() => this.chain.publicClient.multicall({
-      contracts: candidates.map((pool) => ({ address: pool, abi: uniswapV3PoolAbi, functionName: 'liquidity' as const })),
-      allowFailure: true,
-    }))
+    const liq = await withRpcRetry(async () => {
+      const r = await this.chain.publicClient.multicall({
+        contracts: candidates.map((pool) => ({ address: pool, abi: uniswapV3PoolAbi, functionName: 'liquidity' as const })),
+        allowFailure: true,
+      })
+      throwIfAllTransient(r)
+      return r
+    })
     let best: { pool: Address; liquidity: bigint } | null = null
     liq.forEach((r, i) => {
       if (r.status !== 'success') return
@@ -177,14 +185,18 @@ export class Prices {
     const hit = this.curveFactory.get(key)
     if (hit) return hit
     const { odysseyBonding, odysseyReflection, odysseyLegacy } = this.chain.addresses
-    const reads = await withRpcRetry(() => this.chain.publicClient.multicall({
-      contracts: [
-        { address: odysseyBonding, abi: odysseyBondingPoolAbi, functionName: 'getPool', args: [token] },
-        { address: odysseyReflection, abi: odysseyReflectionPoolAbi, functionName: 'getPool', args: [token] },
-        { address: odysseyLegacy, abi: odysseyBondingPoolAbi, functionName: 'getPool', args: [token] },
-      ],
-      allowFailure: true,
-    }))
+    const reads = await withRpcRetry(async () => {
+      const r = await this.chain.publicClient.multicall({
+        contracts: [
+          { address: odysseyBonding, abi: odysseyBondingPoolAbi, functionName: 'getPool', args: [token] },
+          { address: odysseyReflection, abi: odysseyReflectionPoolAbi, functionName: 'getPool', args: [token] },
+          { address: odysseyLegacy, abi: odysseyBondingPoolAbi, functionName: 'getPool', args: [token] },
+        ],
+        allowFailure: true,
+      })
+      throwIfAllTransient(r)
+      return r
+    })
     const factories = [odysseyBonding, odysseyReflection, odysseyLegacy]
     for (let i = 0; i < reads.length; i++) {
       const r = reads[i]!

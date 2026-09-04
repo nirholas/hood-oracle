@@ -19,9 +19,7 @@ library PositionLib {
     uint256 internal constant BPS = 10_000;
 
     /// @notice Fold a fill of `received` units bought for `spentWei` into the position.
-    function recordBuy(IHoodArmAccount.Position storage p, uint256 received, uint256 spentWei, uint64 now_)
-        internal
-    {
+    function recordBuy(IHoodArmAccount.Position storage p, uint256 received, uint256 spentWei, uint64 now_) internal {
         if (p.tokenAmount == 0) p.openedAt = now_;
         p.tokenAmount = (uint256(p.tokenAmount) + received).toUint128();
         p.costBasisWei = (uint256(p.costBasisWei) + spentWei).toUint128();

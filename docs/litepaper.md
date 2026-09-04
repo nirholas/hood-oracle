@@ -1,8 +1,8 @@
 # hood-oracle litepaper
 
 hood-oracle is an autonomous launch trader for Robinhood Chain (chain id
-4663): a conviction oracle that scores every new token launch in its first
-ninety seconds and learns from what those launches actually did, a set of
+4663): a conviction oracle that scores every new token launch, from any of
+the 17 launchpads its intake registers, in its first ninety seconds and learns from what those launches actually did, a set of
 guardrails that no strategy, model or optimizer can loosen past what the
 operator bounded, an execution path that starts on the sequencer feed rather
 than on a block, and a set of on-chain contracts that move the guardrails
@@ -16,8 +16,9 @@ what is measured instead.
 ## The problem
 
 **Launch-day markets on a new L2 are information-asymmetric, and the
-asymmetry is structural.** When a token launches on NOXA, The Odyssey, or as
-a bare Uniswap v3 pool on Robinhood Chain, the first ninety seconds decide
+asymmetry is structural.** When a token launches on Robinhood Chain, through
+NOXA, The Odyssey, one of the v4 hook launchers, or as a bare pool, the first
+ninety seconds decide
 most of the outcome and almost nobody watching has the tape: who bought, how
 correlated those buyers are, whether the deployer is already selling, whether
 supply was bundled in the deploy block, whether the wallets are fresh or
@@ -43,6 +44,31 @@ hood-oracle is the answer to those three problems in that order: an oracle
 that measures, a learning loop that keeps it honest, guardrails that fail
 closed, and contracts that hold the guardrails where the engine cannot reach
 them.
+
+## The launch surface
+
+Robinhood Chain is not one launchpad with a stable shape. The intake registry
+in `src/chain/launchpads.ts` recognises **17** launchpads today: NOXA and The
+Odyssey, pool creations with no registered launcher recorded as `direct`, the
+named v4 launchers (RWA launchpad, LongLauncher, CashCat, Forge, PairV4,
+Pons, Rialto, DontBlink, Lunch, TokenSelect, RamenPad), and three launcher
+contracts identified by address until somebody names them. A launchpad the
+registry has never seen still produces a scored launch through the `direct`
+path, so a new venue does not make the engine blind.
+
+**Uniswap v4 is live on 4663.** The PoolManager singleton at
+`0x8366a39CC670B4001A1121B8F6A443A643e40951` is deployed, and hook-based
+launchpads initializing pools behind it account for most of the
+launch-shaped activity on the chain. This matters to the design in two ways.
+First, a launch detector keyed only on v3 factory calls would miss the
+majority of the market, which is why intake matches a registry of contracts
+and hooks rather than one factory. Second, the oracle scores a v4 launch
+(venue `v4`) exactly as it scores a v3 one, because every feature is read
+from the tape rather than from pool internals, while the executor trades what
+it can prove it can sell: v3 pools today, with v4 routing on the roadmap
+below. Observing more than you route is deliberate. A score the engine cannot
+act on is still a label the model learns from, and a token the engine cannot
+sell is one the firewall was always going to block.
 
 ## The product
 
@@ -73,14 +99,18 @@ the server. The walk from a first simulated arm to a live one is
 
 ### The on-chain arm contracts
 
-The contracts in `contracts/` are a per-user managed account on Robinhood
-Chain. You deploy your own, deposit ETH, and name the engine's hot key as
-operator. The operator can call the trade functions and nothing else. The
-per-trade cap, the daily budget, the cooldown, the concurrency limit, the
-allowed router, the slippage bound, the kill switch and the oracle-score
-gate live in the account's policy and are enforced by the chain: a breach
-reverts, with the numbers a human needs in the error. The owner can withdraw
-at any time. The security model is
+The contracts in `contracts/` are four: `HoodArmAccount`, a per-owner managed
+account the factory deploys as an EIP-1167 clone; `HoodArmFactory`, which
+creates them and holds the protocol fee settings; `HoodOracleAttestations`,
+where signed scores are posted; and `HoodFeeSplitter`, which pays out accrued
+fees. You deploy your own account with a cold key, deposit ETH, and name the
+engine's hot key as `operator`. The operator can buy inside the policy and
+sell, and nothing else. The per-trade cap, the daily budget, the cooldown,
+the concurrency limit, the allowed router, the slippage bound, the kill
+switch and the oracle-score gate live in the account's policy and are
+enforced by the chain: a breach reverts, with the numbers a human needs in
+the error. The owner can withdraw at any time. The design, the gas table and
+the full threat model are [contracts.md](contracts.md); the summary is
 [security and threat model](#security-and-threat-model) below.
 
 ### The agent surfaces
@@ -321,17 +351,20 @@ demonstrably produced and prices on data it demonstrably computed. Any token
 layer would be a separate decision, made later, on its own merits, and
 nothing in the protocol depends on one existing.
 
-**Performance fee, at the contract level.** An on-chain arm account accrues
-a performance fee only on realized profit: no fee on deposits, losses or
-withdrawals. The fee rate is set per account within a protocol maximum of
-20% (`FeeTooHigh` in `contracts/src/libraries/HoodErrors.sol` is the revert
-for anything above it). Because the fee is computed by the account contract
-itself, an operator cannot charge a fee the chain did not witness.
+**Performance fee, at the contract level.** An arm account charges a
+performance fee only on realized P&L above a per-position high-water mark:
+a partial exit at a gain followed by one at a loss is never charged twice,
+and a loss is fully recovered before the next fee. Nothing is charged on
+deposits, losses or withdrawals. Each account snapshots the factory's rate at
+creation, the protocol ceiling is 20% (2000 bps), and a rate change waits 24
+hours in the open and never touches accounts that already exist. Because the
+fee is computed by the account contract itself, an operator cannot charge a
+fee the chain did not witness.
 
-**Protocol fee split.** Accrued fees are released through an on-chain
-splitter with named payees and shares, so the split between the protocol and
-whoever operates a given engine is a contract state anyone can read, not a
-line in a server config.
+**Protocol fee split.** Accrued fees are released through `HoodFeeSplitter`,
+a pull-based splitter with fixed payees and shares set at construction, so
+the split between the protocol and whoever operates a given engine is
+contract state anyone can read, not a line in a server config.
 
 **Pay-per-score oracle data.** `GET /api/x402/score/:token` answers `402
 Payment Required` until the request carries a signed USDG payment on
@@ -362,25 +395,33 @@ kill switch has four independent triggers, three of which the engine cannot
 clear.
 
 **The keys.** The on-chain arm contracts move the boundary. In the account
-model the engine's key is an *operator* that can only call the trade
-functions; the caps, the allowed router, the slippage bound, the kill switch
+model the engine's key is an `operator` that can only buy inside the policy
+and sell; the caps, the allowed router, the slippage bound, the kill switch
 and the oracle gate are policy on the account and revert on breach; a change
-that loosens the policy queues behind a timelock (`Timelocked` in the error
-library) while a tightening applies at once; the owner can withdraw at any
-time; and the quote token cannot change while positions are open. Oracle
-attestations are signed structs with an observation time and an expiry, and
-the account refuses a stale, expired or wrongly-signed one by name. A
-compromised engine key can therefore trade badly within the caps, and
-nothing else. The revert names mirror the `RefusalReason` vocabulary the
-off-chain risk engine already journals, so the dashboard maps a revert
-selector straight onto the reason an operator already knows.
+that tightens the policy applies at once while any loosening queues for an
+hour in the open; the owner can withdraw at any time; and the quote token
+cannot change while positions are open. Oracle attestations are EIP-712
+structs with an observation time and an expiry, replay of a stale score is
+refused, and revoking the signer makes every attestation that key ever posted
+read as absent, at which point an account with an oracle floor refuses every
+buy rather than opening up. So a leaked operator key buys at most one
+capped trade per cooldown, up to the daily budget, in at most the allowed
+number of positions, only through the allowed router, only above the oracle
+floor, and can never withdraw or change policy; the owner sees the `Buy`
+events, kills, and rotates the operator. The revert names mirror the
+`RefusalReason` vocabulary the off-chain risk engine already journals, so the
+dashboard maps a revert selector straight onto the reason an operator already
+knows.
 
-What the contracts do not protect against: a policy the owner set too loose,
-a router that is itself compromised, or a pool that is honest for the buy
-and manipulated for the sell. The firewall simulation still runs off-chain
-before every buy for exactly that last case. The contracts are in
-development and have not been audited; the roadmap below states the order in
-which that changes.
+What the contracts do not protect against: a policy the owner set too loose
+(the caps are the loss budget for a compromised key, not a trading
+preference), a leaked owner key, a router that is itself compromised, or a
+pool that is honest for the buy and manipulated for the sell by an attacker
+who also holds the operator key. The firewall simulation still runs off-chain
+before every buy for that last case, and the caps still bound it. The
+contracts are written and unit-tested against a live-pool fork; they are not
+deployed and not audited. The roadmap below states the order in which that
+changes, and [contracts.md](contracts.md) has the threat model in full.
 
 ## Roadmap
 
@@ -401,10 +442,11 @@ Phased, and each phase is a state you can check rather than a date:
 5. **Oracle attestations consumed by third-party contracts.** The signed
    verdict is a primitive other Robinhood Chain contracts read: a launchpad
    gate, a vault's entry rule, an agent's own account.
-6. **Multi-launchpad and v4 coverage.** Every registered launcher on 4663 is
-   scored (the intake already records more than a dozen), and Uniswap v4
-   pools, which the engine observes and scores today but does not route
-   through, become routable.
+6. **v4 routing.** The engine already observes and scores v4 launches, which
+   is where most launch-shaped activity on 4663 now happens, and already
+   registers 17 launchpads. What remains is routing: swapping through the v4
+   PoolManager behind a hook the registry has read and verified, with the
+   same firewall round trip gating every buy.
 
 ## Relationship to three.ws
 
@@ -427,5 +469,6 @@ is why this document can name the incident behind each rule.
 - [oracle.md](oracle.md): every feature, the heads, labels, fit, gate, calibration, backfill
 - [guardrails.md](guardrails.md): every check, the kill switch, autonomy, the optimizer
 - [arming.md](arming.md): simulate, read the ledger, go live, earn autonomy
+- [contracts.md](contracts.md): the on-chain arm, its four contracts, gas and the threat model
 - [api.md](api.md): every route with examples
 - [site-build.md](site-build.md): how this site is built and served

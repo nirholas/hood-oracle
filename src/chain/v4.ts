@@ -36,7 +36,7 @@ import {
   type Address, type Hash, type Hex, concatHex, decodeFunctionData, encodeAbiParameters, encodeFunctionData, getAddress, keccak256, maxUint160, maxUint48, parseAbi, toHex,
 } from 'viem'
 import type { ChainClient } from './client.js'
-import { withRpcRetry } from './client.js'
+import { isTransientRpcError, withRpcRetry } from './client.js'
 import type { LaunchRecord } from '../types.js'
 
 export const V4_ADDRESSES = {
@@ -278,12 +278,15 @@ export class V4 {
   }
 }
 
+/** A genuine on-chain revert (the pool or hook refused), as opposed to a transport failure that viem also wraps as a contract error. */
 function isContractRevert(err: unknown): boolean {
+  if (isTransientRpcError(err)) return false
   let e: unknown = err
   for (let depth = 0; e && typeof e === 'object' && depth < 6; depth++) {
-    const name = (e as { name?: string }).name ?? ''
-    if (name === 'ContractFunctionRevertedError' || name === 'ContractFunctionExecutionError') return true
-    e = (e as { cause?: unknown }).cause
+    const o = e as { name?: string; message?: string; cause?: unknown }
+    if (o.name === 'ContractFunctionRevertedError' || o.name === 'ExecutionRevertedError') return true
+    if (typeof o.message === 'string' && /execution reverted|reverted with/i.test(o.message)) return true
+    e = o.cause
   }
   return false
 }

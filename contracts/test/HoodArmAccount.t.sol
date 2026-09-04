@@ -329,7 +329,9 @@ contract HoodArmAccountTest is HoodFixture {
     function test_oracleGateFailsClosedWithoutAttestationsContract() public {
         Policy memory p = basePolicy;
         p.minOracleScore = 10;
-        HoodArmAccount bare = HoodArmAccount(payable(new NoAttestationsFactory(address(implementation), address(weth)).create(owner, operator, p)));
+        HoodArmAccount bare = HoodArmAccount(
+            payable(new NoAttestationsFactory(address(implementation), address(weth)).create(owner, operator, p))
+        );
         vm.deal(address(bare), 1 ether);
         vm.prank(operator);
         vm.expectRevert(abi.encodeWithSelector(OracleGate.selector, 0, 10, false));

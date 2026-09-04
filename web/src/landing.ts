@@ -254,10 +254,12 @@ function createRadar() {
     canvas.width = Math.floor(rect.width * dpr)
     canvas.height = Math.floor(rect.height * dpr)
     ctx?.setTransform(dpr, 0, 0, dpr, 0, 0)
-    R = W / 2 - 14
+    R = Math.max(0, W / 2 - 14)
     if (reduce.matches) drawFrame()
   }
   addEventListener('resize', resize)
+  // The canvas can be measured before layout gives it a size; re-measure when it does.
+  new ResizeObserver(() => resize()).observe(canvas)
 
   const line = (alpha: number) => (colors.dark ? `rgba(234,238,250,${alpha})` : `rgba(16,19,31,${alpha})`)
 
@@ -397,6 +399,7 @@ function createRadar() {
   }
 
   function drawFrame(): void {
+    if (R <= 0) return
     drawStatic()
     if (!reduce.matches) drawSweep()
     drawBlips()

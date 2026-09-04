@@ -39,6 +39,7 @@ pre.code .c { color: var(--faint); }
 .rr-sub { font: 500 12px/1.5 var(--sans); color: var(--muted); margin-top: 4px; }
 
 /* sections */
+.surface > *, .oracle-grid > *, .kill-grid > *, .chain-grid > *, .agent-grid > *, .open-grid > *, .steps > *, .hero-l > *, .lfoot-in > * { min-width: 0; }
 .sec { max-width: 1240px; margin: 0 auto; padding: 54px 18px 8px; }
 .sec-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; flex-wrap: wrap; margin-bottom: 22px; }
 .sec-head > div { min-width: 0; }
@@ -74,6 +75,12 @@ pre.code .c { color: var(--faint); }
 .step:hover { border-color: var(--stroke-strong); transform: translateY(-1px); }
 .step h3 { margin: 10px 0 6px; font-size: 15px; }
 .step p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.55; }
+
+.surface { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+.surface > div { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); }
+.surface h3 { margin: 0 0 6px; font-size: 15px; }
+.surface .sub { margin: 0; font-size: 13px; }
+.surface code { word-break: break-all; }
 
 /* oracle */
 .model-banner { align-items: center; }
@@ -139,7 +146,7 @@ pre.code .c { color: var(--faint); }
 }
 @media (max-width: 720px) {
   .hero-l { padding-top: 28px; }
-  .oracle-grid, .kill-grid, .guards, .checks, .steps, .chain-grid, .agent-grid, .open-grid, .lfoot-in { grid-template-columns: 1fr; }
+  .oracle-grid, .kill-grid, .guards, .checks, .steps, .chain-grid, .agent-grid, .open-grid, .lfoot-in, .surface { grid-template-columns: 1fr; }
   .lfoot-meta { text-align: left; }
   .sec { padding-top: 40px; }
   .hero-stats { grid-template-columns: repeat(2, 1fr); }

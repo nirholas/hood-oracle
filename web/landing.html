@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>hood-oracle · conviction on every Robinhood Chain launch</title>
-  <meta name="description" content="An autonomous launch trader for Robinhood Chain (4663). A learning conviction oracle scores every NOXA, Odyssey and direct pool launch in its first ninety seconds; operators arm strategies behind hard guardrails; an engine executes on the sequencer feed. Simulate mode is the default." />
+  <meta name="description" content="An autonomous launch trader for Robinhood Chain (4663). A learning conviction oracle scores launches from 17 registered launchpads in their first ninety seconds; operators arm strategies behind hard guardrails; an engine executes on the sequencer feed. Simulate mode is the default." />
   <meta name="theme-color" content="#05060c" media="(prefers-color-scheme: dark)" />
   <meta name="theme-color" content="#f4f5f9" media="(prefers-color-scheme: light)" />
   <meta property="og:type" content="website" />
@@ -40,7 +40,7 @@
       <div class="hero-copy">
         <span class="eyebrow"><span class="dot live" id="heroDot"></span><span id="heroLive">Robinhood Chain · 4663</span></span>
         <h1 id="heroTitle">Conviction on every launch. Guardrails on every trade.</h1>
-        <p class="lede">hood-oracle holds the Robinhood Chain sequencer feed open, scores every NOXA, Odyssey and direct Uniswap v3 launch in its first ninety seconds with a conviction oracle that re-fits itself from realized outcomes, and executes only through hard, fail-closed guardrails on behalf of the strategies you arm. Simulate mode is the default and touches no funds.</p>
+        <p class="lede">hood-oracle holds the Robinhood Chain sequencer feed open, scores every launch from the <b>17 launchpads</b> its intake registers, Uniswap v3 pools and Uniswap v4 hook launches included, in the first ninety seconds, with a conviction oracle that re-fits itself from realized outcomes, and executes only through hard, fail-closed guardrails on behalf of the strategies you arm. Simulate mode is the default and touches no funds.</p>
         <div class="btn-row hero-cta">
           <a class="btn primary" href="/app">Open the oracle board</a>
           <a class="btn" href="/litepaper">Read the litepaper</a>
@@ -48,7 +48,7 @@
         </div>
         <div class="stats hero-stats" id="heroStats" aria-live="polite">
           <div class="stat"><span>Scored · 24h</span><div class="stat-val sk" id="stScored">000</div><small id="stScoredSub">under the active model</small></div>
-          <div class="stat"><span>Launches · 24h</span><div class="stat-val sk" id="stLaunches">000</div><small>first sight, every launchpad</small></div>
+          <div class="stat"><span>Launches · 24h</span><div class="stat-val sk" id="stLaunches">000</div><small id="stLaunchesSub">first sight, every launchpad</small></div>
           <div class="stat"><span>Launches indexed</span><div class="stat-val sk" id="stIndexed">0000</div><small id="stIndexedSub">on this network</small></div>
           <div class="stat"><span>Model</span><div class="stat-val sk" id="stModel">prior</div><small id="stModelSub">provenance</small></div>
         </div>
@@ -100,7 +100,7 @@
           </defs>
           <g class="fl-row">
             <rect x="20" y="30" width="150" height="54" rx="10" class="fl-box"/><text x="95" y="52" class="fl-t">sequencer feed</text><text x="95" y="70" class="fl-s">+ log watchers</text>
-            <rect x="215" y="30" width="150" height="54" rx="10" class="fl-box"/><text x="290" y="52" class="fl-t">launch intake</text><text x="290" y="70" class="fl-s">NOXA · Odyssey · direct</text>
+            <rect x="215" y="30" width="150" height="54" rx="10" class="fl-box"/><text x="290" y="52" class="fl-t">launch intake</text><text x="290" y="70" class="fl-s">17 launchpads · v3 + v4</text>
             <rect x="410" y="30" width="150" height="54" rx="10" class="fl-box"/><text x="485" y="52" class="fl-t">90s observation</text><text x="485" y="70" class="fl-s">buyers, volume, holders</text>
             <rect x="605" y="30" width="150" height="54" rx="10" class="fl-box fl-oracle"/><text x="680" y="52" class="fl-t">oracle score</text><text x="680" y="70" class="fl-s">win · rug · moon heads</text>
             <rect x="800" y="30" width="150" height="54" rx="10" class="fl-box fl-gate"/><text x="875" y="52" class="fl-t">guardrails</text><text x="875" y="70" class="fl-s">14 checks, fail closed</text>
@@ -124,12 +124,22 @@
         </svg>
       </figure>
       <div class="steps">
-        <article class="step"><span class="stepno">1</span><h3>Intake</h3><p>The sequencer feed is decoded roughly 100 to 300 ms before a block is queryable. Factory calldata is matched on the frame, and the launch is confirmed by its log before anything else happens.</p></article>
+        <article class="step"><span class="stepno">1</span><h3>Intake</h3><p>The sequencer feed is decoded roughly 100 to 300 ms before a block is queryable. Calldata is matched against a registry of 17 launchpads, and the launch is confirmed by its log before anything else happens.</p></article>
         <article class="step"><span class="stepno">2</span><h3>Observation window</h3><p>Up to ninety seconds of tape after first sight: unique buyers, volume, concentration, deployer behaviour, bundling, timing entropy. An arm chooses how much of the window to wait through.</p></article>
         <article class="step"><span class="stepno">3</span><h3>Oracle</h3><p>A bucketed logistic model with three heads scores the snapshot 0 to 100 and tiers it. Rug risk is published beside the score, never blended in. Every verdict quotes the buckets that moved it.</p></article>
         <article class="step"><span class="stepno">4</span><h3>Guardrails</h3><p>An ordered risk engine runs the cheapest, most fatal check first and fails closed on anything it cannot read. A refusal is journaled with its reason in plain language.</p></article>
         <article class="step"><span class="stepno">5</span><h3>Execution</h3><p>A real buy-then-sell simulation runs before every live buy. A token that can be bought but not sold is blocked. The pre-built swap is broadcast raw to every RPC at once.</p></article>
         <article class="step"><span class="stepno">6</span><h3>Learning loop</h3><p>Labels resolve 24 hours later and are price-independent. Every six hours a candidate is fitted on a time-split holdout and promoted only through a gate it can fail.</p></article>
+      </div>
+      <div class="surface">
+        <div>
+          <h3>What counts as a launch on 4663</h3>
+          <p class="sub">The intake registry (<code>src/chain/launchpads.ts</code>) recognises <b>17</b> launchpads today: NOXA and The Odyssey, bare pool creations recorded as <code>direct</code>, the named v4 launchers (RWA launchpad, LongLauncher, CashCat, Forge, PairV4, Pons, Rialto, DontBlink, Lunch, TokenSelect, RamenPad) and three launcher contracts identified by address until they are named. Every one of them is scored the same way.</p>
+        </div>
+        <div>
+          <h3>Uniswap v4 is live on this chain</h3>
+          <p class="sub">The v4 PoolManager singleton (<code>0x8366a39CC670B4001A1121B8F6A443A643e40951</code>) is live on 4663, and hook-based launchpads initializing pools behind it produce most of the launch-shaped activity. The engine observes and scores v4 launches as venue <code>v4</code>; routing through them is on the roadmap, and until it lands the executor trades v3 pools and refuses what it cannot sell. <a href="/docs/architecture">How intake decides</a></p>
+        </div>
       </div>
     </section>
 
@@ -236,19 +246,19 @@ win  = moon AND hold_multiple &gt;= 1</code></pre>
         <div>
           <span class="kicker">On-chain arms</span>
           <h2 id="chainTitle">The same guardrails, enforced by the chain, with your keys</h2>
-          <p class="sub">Server-side guardrails protect you from a bad market. They do not protect you from the server. The arm contracts in <code>contracts/</code> move the caps into a per-user managed account on Robinhood Chain, so the engine can trade for you without ever holding your funds.</p>
+          <p class="sub">Server-side guardrails protect you from a bad market. They do not protect you from the server. The arm contracts in <code>contracts/</code> move the caps that bound new risk onto Robinhood Chain, so the chain enforces them against whoever holds the key, engine or thief. Four contracts: <code>HoodArmAccount</code>, <code>HoodArmFactory</code>, <code>HoodOracleAttestations</code>, <code>HoodFeeSplitter</code>.</p>
         </div>
-        <span class="badge b-warn" id="contractsStatus">in development</span>
+        <span class="badge b-warn" id="contractsStatus">written, not yet deployed</span>
       </div>
       <div class="chain-grid">
-        <article class="card"><h3>A managed account per user</h3><p class="sub">You deploy your own account, deposit ETH, and name the engine's hot key as operator. The operator can only call the trade functions; the owner can withdraw at any time, positions open or not.</p></article>
-        <article class="card"><h3>Caps the operator cannot cross</h3><p class="sub">Per-trade cap, daily budget, cooldown and concurrency live in the account's policy and revert on breach. Every revert carries the numbers a human needs: <code>PerTradeCap(amountWei, capWei)</code>, <code>DailyBudget(wouldSpendWei, budgetWei)</code>, <code>Cooldown(remainingSeconds)</code>.</p></article>
-        <article class="card"><h3>Allowed router and slippage bound</h3><p class="sub">Trades route only through the router the policy names, and the caller's <code>amountOutMinimum</code> must satisfy the policy's slippage bound against the pool's current price. A router swap is refused with <code>RouterNotAllowed</code>.</p></article>
-        <article class="card"><h3>Oracle-score gate</h3><p class="sub">A policy can require a fresh, signed oracle attestation above a minimum score before the account will buy a token. Stale or expired attestations are refused. The attestation is a plain signed struct so that other contracts can consume it too.</p></article>
-        <article class="card"><h3>Kill switch and timelock</h3><p class="sub">The owner trips the kill switch and every new buy reverts with <code>KillSwitch()</code>. A change that loosens the policy queues behind a timelock; a change that tightens it applies at once.</p></article>
-        <article class="card"><h3>Fees at the contract level</h3><p class="sub">A performance fee accrues only on realized profit and is capped by the protocol at 20%, split through an on-chain splitter. There is no fee on deposits, losses or withdrawals.</p></article>
+        <article class="card"><h3>A managed account per owner</h3><p class="sub">The factory deploys you an EIP-1167 clone. Your cold key is <code>owner</code> and funds, sets policy, kills and withdraws; the engine's hot key is <code>operator</code> and can only buy inside the policy and sell. <code>ownerWithdraw</code> works any time, positions open or not, and no protocol key can swap the code an existing account runs.</p></article>
+        <article class="card"><h3>Caps the operator cannot cross</h3><p class="sub"><code>buy</code> runs the same ordered checks as the off-chain risk engine and reverts on breach: <code>PerTradeCap(amount, cap)</code>, <code>DailyBudget(wouldSpend, budget)</code> over the UTC day, <code>Concurrency(open, max)</code>, <code>Cooldown(remaining)</code>. Sells are exempt from all of them, for the reason a cap must never trap a losing position.</p></article>
+        <article class="card"><h3>Allowed router and slippage bound</h3><p class="sub">The account approves only <code>policy.allowedRouter</code>, for exactly the input amount, and clears whatever allowance the router leaves. The caller's <code>amountOutMinimum</code> must clear a floor derived from the pool's spot price at execution, so a zero minimum reverts with <code>SlippageBound</code>.</p></article>
+        <article class="card"><h3>Oracle-score gate</h3><p class="sub">A policy can require a fresh attestation at or above a minimum score before the account buys a token. Scores are posted to <code>HoodOracleAttestations</code> as EIP-712 structs with an observation time and an expiry; posting is permissionless, replay of a stale score is refused, and a revoked signer's attestations all read as absent at once.</p></article>
+        <article class="card"><h3>Kill switch and timelock</h3><p class="sub">The owner calls <code>kill()</code> and every new buy reverts with <code>KillSwitch()</code>. There is no <code>panicSellAll</code>: the owner closes positions one at a time, at a slippage bound, once they have looked. A policy change that tightens applies at once; any loosening queues for an hour in the open.</p></article>
+        <article class="card"><h3>Fees at the contract level</h3><p class="sub">The performance fee is charged only on realized P&amp;L above a per-position high-water mark, so a gain then a loss is never charged twice and a loss is recovered before the next fee. The rate is snapshotted at account creation and capped by the protocol at 20%. Nothing is charged on deposits, losses or withdrawals.</p></article>
       </div>
-      <p class="sub">The revert names mirror the <code>RefusalReason</code> vocabulary the off-chain risk engine already journals, so the dashboard maps a revert selector straight onto the reason you already know. Security model and threat analysis: <a href="/litepaper#security-and-threat-model">the litepaper</a>.</p>
+      <p class="sub">The revert names mirror the <code>RefusalReason</code> vocabulary the off-chain risk engine already journals, so the dashboard maps a revert selector straight onto the reason you already know. The contracts are written and unit-tested against a live-pool fork; they are not deployed and not audited yet, and the policy you set is the loss budget for a compromised key rather than a trading preference. Design, gas and the full threat model: <a href="/docs/contracts">the contracts doc</a>, and <a href="/litepaper#security-and-threat-model">the litepaper</a>.</p>
     </section>
 
     <section class="sec" id="agents" aria-labelledby="agentsTitle">
@@ -292,7 +302,7 @@ npm run oracle:backfill -- --days 30
 npm run dev                     <span class="c"># http://localhost:8080</span></code></pre>
         <div class="open-notes">
           <p><b>Extracted from three.ws.</b> The conviction oracle and the guardrail layer came out of the three.ws Solana sniper and were re-fitted for an EVM chain: wei instead of lamports, ETH gas headroom instead of rent, Uniswap v3 and Odyssey curves instead of pump.fun, a sequencer feed instead of a Geyser stream. <a href="https://three.ws/oracle" rel="noopener">The Solana engine is live at three.ws/oracle</a>.</p>
-          <p><b>Docs are part of the product.</b> <a href="/docs/architecture">Architecture</a>, <a href="/docs/oracle">the oracle</a>, <a href="/docs/guardrails">guardrails</a>, <a href="/docs/arming">arming</a>, <a href="/docs/api">the API</a>, <a href="/docs/deploy">deploying</a>, and <a href="/litepaper">the litepaper</a>.</p>
+          <p><b>Docs are part of the product.</b> <a href="/docs/architecture">Architecture</a>, <a href="/docs/oracle">the oracle</a>, <a href="/docs/guardrails">guardrails</a>, <a href="/docs/arming">arming</a>, <a href="/docs/contracts">the contracts</a>, <a href="/docs/api">the API</a>, <a href="/docs/deploy">deploying</a>, and <a href="/litepaper">the litepaper</a>.</p>
         </div>
       </div>
     </section>

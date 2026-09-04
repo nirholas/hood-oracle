@@ -157,7 +157,9 @@ contract HoodArmAccount is IHoodArmAccount, ReentrancyGuard {
         if (p.dailyBudgetWei == 0 || wouldSpend > p.dailyBudgetWei) revert DailyBudget(wouldSpend, p.dailyBudgetWei);
         Position storage pos = _positions[token];
         bool opening = pos.tokenAmount == 0;
-        if (opening && openPositionCount >= p.maxOpenPositions) revert Concurrency(openPositionCount, p.maxOpenPositions);
+        if (opening && openPositionCount >= p.maxOpenPositions) {
+            revert Concurrency(openPositionCount, p.maxOpenPositions);
+        }
         _checkOracleGate(token, p.minOracleScore);
         _checkSlippage(p.allowedRouter, p.maxSlippageBps, p.quoteToken, token, amountInWei, amountOutMinimum, fee);
         _ensureQuote(p.quoteToken, amountInWei);
@@ -377,8 +379,7 @@ contract HoodArmAccount is IHoodArmAccount, ReentrancyGuard {
     function _checkOracleGate(address token, uint8 minScore) private view {
         if (minScore == 0) return;
         if (attestations == address(0)) revert OracleGate(0, minScore, false);
-        (IHoodOracleAttestations.Attestation memory a, bool fresh) =
-            IHoodOracleAttestations(attestations).latest(token);
+        (IHoodOracleAttestations.Attestation memory a, bool fresh) = IHoodOracleAttestations(attestations).latest(token);
         if (!fresh || a.score < minScore) revert OracleGate(a.score, minScore, fresh);
     }
 
@@ -413,14 +414,19 @@ contract HoodArmAccount is IHoodArmAccount, ReentrancyGuard {
     ///      measure what actually arrived so fee-on-transfer tokens are booked
     ///      at their real delivered amount. Any allowance the router left
     ///      behind is cleared, so the router never holds standing approval.
-    function _swap(address router, address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOutMinimum, uint24 fee)
-        private
-        returns (uint256 received)
-    {
+    function _swap(
+        address router,
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 amountOutMinimum,
+        uint24 fee
+    ) private returns (uint256 received) {
         uint256 before = IERC20(tokenOut).balanceOf(address(this));
         IERC20(tokenIn).forceApprove(router, amountIn);
-        ISwapRouter02(router).exactInputSingle(
-            ISwapRouter02.ExactInputSingleParams({
+        ISwapRouter02(router)
+            .exactInputSingle(
+                ISwapRouter02.ExactInputSingleParams({
                 tokenIn: tokenIn,
                 tokenOut: tokenOut,
                 fee: fee,
@@ -429,7 +435,7 @@ contract HoodArmAccount is IHoodArmAccount, ReentrancyGuard {
                 amountOutMinimum: amountOutMinimum,
                 sqrtPriceLimitX96: 0
             })
-        );
+            );
         if (IERC20(tokenIn).allowance(address(this), router) != 0) IERC20(tokenIn).forceApprove(router, 0);
         received = IERC20(tokenOut).balanceOf(address(this)) - before;
     }

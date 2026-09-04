@@ -89,18 +89,21 @@ describe('direct launch intake (live)', () => {
 
   it('turns the newest 3 direct v3 launches of the last 50k blocks into complete momentum features', live(async (c) => {
     const head = await c.publicClient.getBlockNumber()
-    const created = await c.publicClient.getLogs({ address: c.addresses.uniswapV3Factory, event: uniswapV3PoolCreatedEvent, fromBlock: head - 50_000n, toBlock: head })
-    expect(created.length).toBeGreaterThan(0)
     const prices = new Prices(c)
     const launches: LaunchEvent[] = []
     const intake = new DirectLaunchIntake(c, prices, log, { onLaunch: (e) => launches.push(e), isKnownToken: () => false })
-    for (const l of [...created].reverse()) {
-      const a = l.args
-      if (!a.token0 || !a.token1 || !a.pool) continue
-      await intake.onDexPool({ dex: 'v3', token0: a.token0, token1: a.token1, fee: a.fee ?? 0, tickSpacing: a.tickSpacing ?? 0, pool: a.pool, poolId: null, hooks: null, blockNumber: l.blockNumber, txHash: l.transactionHash, logIndex: l.logIndex, seenAt: Date.now() })
-      if (launches.length >= 3) break
+    // Direct launches arrive a few times a day; walk back in 50k-block chunks (about 1.5 hours each) until the newest three are in hand.
+    let scanned = 0
+    for (let to = head; launches.length < 3 && scanned < 8; to -= 50_000n, scanned++) {
+      const created = await withRpcRetry(() => c.publicClient.getLogs({ address: c.addresses.uniswapV3Factory, event: uniswapV3PoolCreatedEvent, fromBlock: to - 50_000n + 1n, toBlock: to }))
+      for (const l of [...created].reverse()) {
+        if (launches.length >= 3) break
+        const a = l.args
+        if (!a.token0 || !a.token1 || !a.pool) continue
+        await intake.onDexPool({ dex: 'v3', token0: a.token0, token1: a.token1, fee: a.fee ?? 0, tickSpacing: a.tickSpacing ?? 0, pool: a.pool, poolId: null, hooks: null, blockNumber: l.blockNumber, txHash: l.transactionHash, logIndex: l.logIndex, seenAt: Date.now() })
+      }
     }
-    log.info({ stats: intake.health(), launches: launches.map((e) => ({ token: e.token, launchpad: e.launchpad, creator: e.creator, creatorSource: e.extra.creatorSource, ageBlocks: e.extra.tokenAgeBlocks, seedWei: e.extra.seedLiquidityWei, to: e.extra.creatingTo })) }, 'direct launches')
+    log.info({ chunksScanned: scanned, stats: intake.health(), launches: launches.map((e) => ({ token: e.token, launchpad: e.launchpad, creator: e.creator, creatorSource: e.extra.creatorSource, ageBlocks: e.extra.tokenAgeBlocks, seedWei: e.extra.seedLiquidityWei, to: e.extra.creatingTo })) }, 'direct launches')
     expect(launches.length).toBe(3)
     const ethUsd = await prices.ethUsd()
     let withTrades = 0

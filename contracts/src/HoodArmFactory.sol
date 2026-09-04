@@ -53,8 +53,12 @@ contract HoodArmFactory is IHoodArmFactory, Ownable2Step {
         uint16 performanceFeeBps_,
         Policy memory defaultPolicy_
     ) Ownable(owner_) {
-        if (implementation_ == address(0) || weth_ == address(0) || feeRecipient_ == address(0)) revert ZeroAddress();
-        if (performanceFeeBps_ > MAX_PERFORMANCE_FEE_BPS) revert FeeTooHigh(performanceFeeBps_, MAX_PERFORMANCE_FEE_BPS);
+        if (implementation_ == address(0) || weth_ == address(0) || feeRecipient_ == address(0)) {
+            revert ZeroAddress();
+        }
+        if (performanceFeeBps_ > MAX_PERFORMANCE_FEE_BPS) {
+            revert FeeTooHigh(performanceFeeBps_, MAX_PERFORMANCE_FEE_BPS);
+        }
         defaultPolicy_.validate();
         implementation = implementation_;
         attestations = attestations_;
@@ -108,7 +112,9 @@ contract HoodArmFactory is IHoodArmFactory, Ownable2Step {
     /// @inheritdoc IHoodArmFactory
     function proposeFee(address feeRecipient_, uint16 performanceFeeBps_) external onlyOwner {
         if (feeRecipient_ == address(0)) revert ZeroAddress();
-        if (performanceFeeBps_ > MAX_PERFORMANCE_FEE_BPS) revert FeeTooHigh(performanceFeeBps_, MAX_PERFORMANCE_FEE_BPS);
+        if (performanceFeeBps_ > MAX_PERFORMANCE_FEE_BPS) {
+            revert FeeTooHigh(performanceFeeBps_, MAX_PERFORMANCE_FEE_BPS);
+        }
         _pendingFeeRecipient = feeRecipient_;
         _pendingFeeBps = performanceFeeBps_;
         _pendingFeeEffectiveAt = block.timestamp + FEE_TIMELOCK;

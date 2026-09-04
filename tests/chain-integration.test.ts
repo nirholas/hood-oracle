@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { getRecentLaunches, NOXA_ADDRESSES, noxaTokenLaunchedEvent } from 'hoodchain'
 import { getAddress, parseEther } from 'viem'
-import { createChainClient, probeRpcUrls, type ChainClient } from '../src/chain/client.js'
+import { createChainClient, probeRpcUrls, withRpcRetry, type ChainClient } from '../src/chain/client.js'
 import { SequencerFeed } from '../src/chain/feed.js'
 import { getLogsChunked, getTokenTrades, resolvePoolSide } from '../src/chain/history.js'
 import { Prices } from '../src/chain/prices.js'
@@ -41,14 +41,14 @@ describe('chain client', () => {
   it('boots against chain 4663 and reads the head', live(async (c) => {
     expect(c.chainId).toBe(4663)
     expect(c.addresses.router).toMatch(/^0x/)
-    const head = await c.publicClient.getBlockNumber()
+    const head = await withRpcRetry(() => c.publicClient.getBlockNumber())
     expect(head).toBeGreaterThan(50_000_000n)
-    const chainId = await c.publicClient.getChainId()
+    const chainId = await withRpcRetry(() => c.publicClient.getChainId())
     expect(chainId).toBe(4663)
   }), 300_000)
 
   it('lists launches over the last 2000 blocks without error (the launchpads may be quiet)', live(async (c) => {
-    const launches = await getRecentLaunches(c.hood, { lookbackBlocks: 2_000n, chunkSize: 2_000n })
+    const launches = await withRpcRetry(() => getRecentLaunches(c.hood, { lookbackBlocks: 2_000n, chunkSize: 2_000n }))
     expect(Array.isArray(launches)).toBe(true)
     for (const l of launches) {
       expect(['noxa', 'odyssey']).toContain(l.launchpad)
@@ -69,7 +69,7 @@ describe('prices', () => {
     // USDG is the reference dollar: its spot in ETH must be 1 / ethUsd
     const pool = await (async () => {
       const { uniswapV3FactoryAbi } = await import('../src/chain/abis.js')
-      return c.publicClient.readContract({ address: c.addresses.uniswapV3Factory, abi: uniswapV3FactoryAbi, functionName: 'getPool', args: [c.addresses.weth, c.addresses.usdg, 100] })
+      return withRpcRetry(() => c.publicClient.readContract({ address: c.addresses.uniswapV3Factory, abi: uniswapV3FactoryAbi, functionName: 'getPool', args: [c.addresses.weth, c.addresses.usdg, 100] }))
     })()
     const spot = await prices.poolSpotEth(pool, c.addresses.usdg, 6)
     expect(spot).not.toBeNull()
@@ -123,7 +123,7 @@ describe('firewall', () => {
     expect(await supportsSimulateV1(c)).toBe(true)
     const prices = new Prices(c)
     const { uniswapV3FactoryAbi } = await import('../src/chain/abis.js')
-    const pool = await c.publicClient.readContract({ address: c.addresses.uniswapV3Factory, abi: uniswapV3FactoryAbi, functionName: 'getPool', args: [c.addresses.weth, c.addresses.usdg, 100] })
+    const pool = await withRpcRetry(() => c.publicClient.readContract({ address: c.addresses.uniswapV3Factory, abi: uniswapV3FactoryAbi, functionName: 'getPool', args: [c.addresses.weth, c.addresses.usdg, 100] }))
     const a = await assessTradeSafety({ chain: c, prices, log, network: 'mainnet', token: c.addresses.usdg, venue: 'pool', pool, factory: null, amountWei: parseEther('0.01'), deployer: null })
     log.info({ verdict: a.verdict, score: a.score, loss: a.roundTripLossPct, checks: a.checks.map((x) => `${x.check}:${x.status} ${x.reason}`) }, 'firewall on WETH/USDG')
     const rt = a.checks.find((x) => x.check === 'round_trip')
