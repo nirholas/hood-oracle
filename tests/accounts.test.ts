@@ -10,11 +10,17 @@
  * say why they cannot, rather than 500.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { getAddress } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import type { Hono } from 'hono'
 import { buildSiweMessage } from '../src/accounts/siwe.js'
 import { NONCE_COOKIE, SESSION_COOKIE } from '../src/accounts/session.js'
 import { cleanupArms, createHarness, syntheticAddress, type Harness } from './api-helpers.js'
+import { createApp } from '../src/api/app.js'
+import { createChainClient } from '../src/chain/client.js'
+import { createEngine } from '../src/engine/index.js'
+import { EventBus } from '../src/engine/bus.js'
+import { log } from '../src/log.js'
 import { eq } from 'drizzle-orm'
 import { schema } from '../src/db/client.js'
 
@@ -265,4 +271,55 @@ describe('arms seen through a wallet session', () => {
     const [row] = await h.db.select().from(schema.arms).where(eq(schema.arms.id, arm.id)).limit(1)
     expect(row?.accountId ?? null).toBeNull()
   })
+})
+
+describe('engine wiring', () => {
+  /**
+   * The multi-tenant layer is only real if something instantiates it. It
+   * shipped once with every module written and nothing constructing them, so
+   * `/api/accounts` answered 503 on a server that had a factory configured
+   * and no arm ever routed through an account. This is the test that would
+   * have caught it.
+   */
+  it('builds the registry exactly when a factory is configured, and hands it to the API', async () => {
+    const silent = log.child({ test: true })
+    silent.level = 'silent'
+    const factory = getAddress(syntheticAddress())
+
+    const singleTenant = createEngine({ config: h.config, db: h.db, log: silent, model: h.model, bus: new EventBus() })
+    expect(singleTenant.accounts).toBeNull()
+
+    const config = { ...h.config, accounts: { ...h.config.accounts, factory } }
+    const multiTenant = createEngine({ config, db: h.db, log: silent, model: h.model, bus: new EventBus() })
+    expect(multiTenant.accounts).not.toBeNull()
+    expect(multiTenant.accounts!.factory).toBe(factory)
+    expect(multiTenant.accounts!.chainId).toBe(h.config.chainId)
+
+    // An app given that registry stops answering "not configured". The chain
+    // read behind it fails (nothing is deployed at a synthetic address) and
+    // the handler degrades to the cached rows rather than a 500.
+    const app = createApp({
+      config, db: h.db, log: silent, engine: h.engine, model: h.model, bus: h.bus,
+      limits: { readsPerMinute: 1_000_000, writesPerMinute: 1_000_000, authReadsPerMinute: 1_000_000, authWritesPerMinute: 1_000_000 },
+      accounts: { registry: multiTenant.accounts!, publicClient: createChainClient(config).publicClient },
+    })
+
+    const jar = new Jar()
+    const account = privateKeyToAccount(generatePrivateKey())
+    const nonce = await json<NonceBody>(await jar.fetch(app, '/api/auth/nonce'))
+    const message = buildSiweMessage({
+      domain: nonce.domain, address: account.address, uri: nonce.uri,
+      chainId: nonce.chainId, nonce: nonce.nonce, statement: nonce.statement,
+    })
+    await jar.fetch(app, '/api/auth/verify', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message, signature: await account.signMessage({ message }) }),
+    })
+    const res = await jar.fetch(app, '/api/accounts')
+    expect(res.status).toBe(200)
+    const body = await json<{ accounts: unknown[]; factory: string; chainId: number }>(res)
+    expect(body.factory).toBe(factory)
+    expect(body.chainId).toBe(h.config.chainId)
+    expect(body.accounts).toEqual([])
+  }, 60_000)
 })

@@ -21,6 +21,8 @@ import { Alerts } from './alerts.js'
 import { loadArms } from './arms.js'
 import { type EngineContext, WINDOW_SECONDS } from './context.js'
 import { Executor, rowToPosition } from './executor.js'
+import { createAccountExecutor, withAccountRouting } from './account-executor.js'
+import { AccountRegistry, type AccountRegistryApi } from '../accounts/registry.js'
 import { buildLaunchBrief, evaluateEntry, judgeLaunch, llmVerdictGate, type GateInput } from './gate.js'
 import { Journal } from './journal.js'
 import { Observer, type ObservationResult } from './observe.js'
@@ -37,7 +39,16 @@ export interface CreateEngineOptions {
   kill?: KillSwitch
   /** Global buys-per-minute throttle across every arm (default 6). */
   maxBuysPerMinute?: number
+  /**
+   * The on-chain account registry. Omitted, one is built from
+   * `HOOD_ARM_FACTORY` when that is set; pass `null` to run single-tenant
+   * even with a factory configured (tests do).
+   */
+  accounts?: AccountRegistryApi | null
 }
+
+/** The engine, plus the account registry it built, which the API serves `/api/accounts` from. */
+export type Engine = EngineApi & { accounts: AccountRegistryApi | null }
 
 const ARM_REFRESH_MS = 15_000
 const WALLET_REFRESH_MS = 30_000
@@ -48,7 +59,7 @@ export function effectiveDelayMs(arm: Arm): number {
   return Math.max(1_000, arm.buyDelayMs)
 }
 
-export function createEngine(opts: CreateEngineOptions): EngineApi {
+export function createEngine(opts: CreateEngineOptions): Engine {
   const { config, db, log, model, bus } = opts
   const chain = opts.chain ?? createChainClient(config)
   const prices = new Prices(chain)
@@ -58,7 +69,27 @@ export function createEngine(opts: CreateEngineOptions): EngineApi {
   const risk = opts.risk ?? new RiskEngine()
   let arms: Arm[] = []
   const ctx: EngineContext = { config, db, log, bus, model, chain, prices, journal, alerts, risk, kill, network: config.network, arms: () => arms }
-  const executor = new Executor(ctx, { maxBuysPerMinute: opts.maxBuysPerMinute ?? 6 })
+  /**
+   * The multi-tenant leg. With a factory configured, arms bound to an on-chain
+   * account trade THROUGH that account (the hot key only signs and pays gas),
+   * and every other arm keeps the direct path. Without one the engine is
+   * single-tenant and nothing here costs anything.
+   */
+  const accounts = opts.accounts === undefined
+    ? config.accounts.factory
+      ? new AccountRegistry({
+        db,
+        log: log.child({ module: 'accounts' }),
+        publicClient: chain.publicClient,
+        chainId: chain.chainId,
+        factory: config.accounts.factory,
+        operatorAddress: chain.account?.address ?? null,
+        journal,
+      })
+      : null
+    : opts.accounts
+  const direct = new Executor(ctx, { maxBuysPerMinute: opts.maxBuysPerMinute ?? 6 })
+  const executor = accounts ? withAccountRouting(direct, createAccountExecutor({ ctx, registry: accounts })) : direct
   const startedAt = new Date().toISOString()
   let running = false
   let armTimer: NodeJS.Timeout | null = null
@@ -198,7 +229,8 @@ export function createEngine(opts: CreateEngineOptions): EngineApi {
     if (result.status === 'failed') alerts.error(`buy-failed:${arm.id}`, `arm ${arm.label} buy of ${launch.symbol ?? launch.token} failed: ${result.error}`)
   }
 
-  const api: EngineApi = {
+  const api: Engine = {
+    accounts,
     async start() {
       if (running) return
       const probes = await probeRpcUrls(chain.rpcUrls)
@@ -233,6 +265,10 @@ export function createEngine(opts: CreateEngineOptions): EngineApi {
       const live = arms.filter((a) => a.enabled && a.mode === 'live').length
       alerts.boot({ mode: feed ? 'sequencer + logs' : 'logs only', arms: arms.filter((a) => a.enabled).length, live })
       status('info', 'engine', `started: ${arms.length} arms (${arms.filter((a) => a.enabled).length} enabled, ${live} live), wallet ${chain.account?.address ?? 'none'}${walletWei != null ? ` ${formatEther(walletWei)} ETH` : ''}`)
+      if (accounts) {
+        accounts.start()
+        status('info', 'accounts', `on-chain accounts on: factory ${config.accounts.factory}, operator ${chain.account?.address ?? 'none (no trading key: accounts cannot be operated)'}`)
+      }
       const ethUsd = await prices.ethUsd()
       if (ethUsd) log.info({ ethUsd: ethUsd.toFixed(2) }, 'eth/usd from the WETH/USDG pool')
     },
@@ -249,6 +285,7 @@ export function createEngine(opts: CreateEngineOptions): EngineApi {
       feed?.stop()
       watchers.stop()
       observer.stop()
+      accounts?.stop()
       status('info', 'engine', 'stopped')
     },
 

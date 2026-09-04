@@ -192,7 +192,7 @@ export async function main(): Promise<void> {
   // 1. config
   const config = loadConfig()
   rootLog.level = config.logLevel
-  log.info({ network: config.network, chainId: config.chainId, rpcs: config.rpcUrls.length, feed: config.disableFeed ? 'disabled' : config.feedUrl, wallet: config.traderPrivateKey ? 'key set' : 'none', operatorToken: config.operatorToken ? 'set' : 'unset', x402: config.x402.payTo ? 'enabled' : 'disabled' }, 'config loaded')
+  log.info({ network: config.network, chainId: config.chainId, rpcs: config.rpcUrls.length, feed: config.disableFeed ? 'disabled' : config.feedUrl, wallet: config.traderPrivateKey ? 'key set' : 'none', operatorToken: config.operatorToken ? 'set' : 'unset', x402: config.x402.payTo ? 'enabled' : 'disabled', accounts: config.accounts.factory ?? 'single-tenant (no HOOD_ARM_FACTORY)' }, 'config loaded')
 
   // 2. database + migration gate
   const migrations = await runMigrations(config.databaseUrl, { statusOnly: true })
@@ -230,7 +230,13 @@ export async function main(): Promise<void> {
       log.info('engine running; oracle jobs scheduled: labels 30m, calibrate 6h, refit 6h')
     },
   })
-  const app = createApp({ config, db, log: rootLog, engine, model, bus, metrics, engineStartup: supervisor.state })
+  const app = createApp({
+    config, db, log: rootLog, engine, model, bus, metrics, engineStartup: supervisor.state,
+    // Present only when HOOD_ARM_FACTORY is set: the same registry the engine
+    // trades through, so the API and the executor can never disagree about an
+    // account's policy or whether we are still its operator.
+    accounts: engine.accounts ? { registry: engine.accounts, publicClient: chain.publicClient } : undefined,
+  })
   const server = serveApp(app, config.port)
   log.info({ port: config.port, webDist: config.webDist, mcp: '/mcp', metrics: '/api/metrics', ready: '/api/ready' }, 'api listening; starting the engine in the background')
 
