@@ -353,7 +353,7 @@ async function loadDetail(address: string): Promise<void> {
 
 const POLICY_FIELDS: { key: keyof AccountPolicyWire; label: string; kind: 'eth' | 'int'; hint: string; max?: number }[] = [
   { key: 'perTradeCapWei', label: 'Per-trade cap', kind: 'eth', hint: 'The most the operator can spend on any single buy.' },
-  { key: 'dailyBudgetWei', label: 'Daily budget', kind: 'eth', hint: 'Rolling 24h spend ceiling across every arm on this account.' },
+  { key: 'dailyBudgetWei', label: 'Daily budget', kind: 'eth', hint: 'Most the account will spend on buys in one UTC day, across every arm on it. It resets at 00:00 UTC, not 24h after the first buy.' },
   { key: 'maxOpenPositions', label: 'Max open positions', kind: 'int', hint: 'Buys are refused on chain past this many open positions.', max: 65_535 },
   { key: 'maxSlippageBps', label: 'Max slippage (bps)', kind: 'int', hint: 'The widest slippage the account will accept on a swap.', max: 10_000 },
   { key: 'cooldownSeconds', label: 'Cooldown (s)', kind: 'int', hint: 'Minimum seconds between buys.', max: 86_400 },

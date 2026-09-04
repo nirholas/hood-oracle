@@ -49,6 +49,8 @@ error DeadlineExpired(uint256 deadline, uint256 blockTimestamp);
 error InvalidPolicy(string field);
 /// @notice The quote token cannot change while positions are open.
 error PositionsOpen(uint256 openPositions);
+/// @notice The quote token cannot change while fees are accrued in the old one. Call `claimFees()` first.
+error FeesPending(uint256 feesAccruedWei);
 /// @notice No Uniswap v3 pool exists for the pair at that fee tier.
 error NoPool(address tokenA, address tokenB, uint24 fee);
 /// @notice The pool is not initialized (zero price).

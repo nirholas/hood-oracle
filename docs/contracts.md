@@ -73,7 +73,10 @@ on the part above the mark and the mark moves up. A partial exit at a gain
 followed by one at a loss is never charged twice, and a loss is fully
 recovered before the next fee. Fees accrue in the quote token inside the
 account (`feesAccruedWei`); `ownerWithdraw` of the quote token stops at that
-reserve; `claimFees` pays the factory's current `feeRecipient`.
+reserve, a buy may not spend it either (a buy only ever uses the quote
+balance above it), and the quote token cannot change while any is unclaimed.
+`claimFees` pays the factory's current `feeRecipient` and is permissionless,
+so clearing that reserve is always one call anybody can make.
 
 **Policy timelock.** `setPolicy` applies at once when the new policy is at
 least as tight on every axis (caps, positions, slippage down; cooldown and

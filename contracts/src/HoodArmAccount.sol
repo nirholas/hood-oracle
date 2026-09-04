@@ -20,6 +20,7 @@ import {
     DailyBudget,
     DeadlineExpired,
     EthTransferFailed,
+    FeesPending,
     InsufficientBalance,
     InsufficientPosition,
     KillSwitch,
@@ -206,7 +207,10 @@ contract HoodArmAccount is IHoodArmAccount, ReentrancyGuard {
     function setPolicy(Policy calldata proposed) external onlyOwner {
         Policy memory next = proposed;
         next.validate();
-        if (next.quoteToken != _policy.quoteToken && openPositionCount != 0) revert PositionsOpen(openPositionCount);
+        if (next.quoteToken != _policy.quoteToken) {
+            if (openPositionCount != 0) revert PositionsOpen(openPositionCount);
+            if (feesAccruedWei != 0) revert FeesPending(feesAccruedWei);
+        }
         if (PolicyLib.isTighterOrEqual(_policy, next)) {
             _policy = next;
             emit PolicyApplied(next);
@@ -223,7 +227,12 @@ contract HoodArmAccount is IHoodArmAccount, ReentrancyGuard {
         if (effectiveAt == 0) revert NothingPending();
         if (block.timestamp < effectiveAt) revert Timelocked(effectiveAt);
         Policy memory next = _pendingPolicy;
-        if (next.quoteToken != _policy.quoteToken && openPositionCount != 0) revert PositionsOpen(openPositionCount);
+        if (next.quoteToken != _policy.quoteToken) {
+            if (openPositionCount != 0) revert PositionsOpen(openPositionCount);
+            // Fees are owed in the quote they were earned in; `claimFees()` is
+            // permissionless, so this is one call away and never a lockup.
+            if (feesAccruedWei != 0) revert FeesPending(feesAccruedWei);
+        }
         _policy = next;
         delete _pendingPolicy;
         _pendingEffectiveAt = 0;
@@ -398,13 +407,20 @@ contract HoodArmAccount is IHoodArmAccount, ReentrancyGuard {
         if (amountOutMinimum < required) revert SlippageBound(amountOutMinimum, required);
     }
 
-    /// @dev Make sure `amountIn` of the quote token is on hand, wrapping ETH when the quote is WETH.
+    /// @dev Make sure `amountIn` of the quote token is on hand, wrapping ETH when
+    ///      the quote is WETH. Accrued fees are NOT trading capital: they are
+    ///      already owed to the protocol, so a buy may not spend them. Without
+    ///      that reserve a buy could leave `claimFees()` unpayable and
+    ///      `withdrawableQuoteWei()` reading zero while the account still held
+    ///      quote, which would look to an owner like their funds had vanished.
     function _ensureQuote(address quote, uint256 amountIn) private {
         uint256 balance = IERC20(quote).balanceOf(address(this));
-        if (balance >= amountIn) return;
-        uint256 shortfall = amountIn - balance;
+        uint256 reserved = feesAccruedWei;
+        uint256 usable = balance > reserved ? balance - reserved : 0;
+        if (usable >= amountIn) return;
+        uint256 shortfall = amountIn - usable;
         if (quote != weth || address(this).balance < shortfall) {
-            revert InsufficientBalance(amountIn, quote == weth ? balance + address(this).balance : balance);
+            revert InsufficientBalance(amountIn, quote == weth ? usable + address(this).balance : usable);
         }
         IWETH9(weth).deposit{value: shortfall}();
         emit Wrapped(shortfall);

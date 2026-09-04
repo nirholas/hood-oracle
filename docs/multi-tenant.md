@@ -114,13 +114,28 @@ reduced to and why, rather than letting the chain reject every fill later.
 
 `buy` is `onlyOperator` and checks, in the contract:
 
-- the per-trade cap and the rolling daily budget
+- the per-trade cap and the daily budget
 - the cooldown since the last buy
 - the open-position count
 - the oracle gate, when `minOracleScore > 0`: a fresh EIP-712 attestation from
   `HoodOracleAttestations` scoring at least that high
 - the slippage bound against the quoted amount out
 - that the router is the one the policy allows
+
+Two details worth knowing before you size a policy:
+
+- **The on-chain daily budget resets at 00:00 UTC**, because the contract
+  measures it by UTC day (`PolicyLib.dayIndex`). The arm's own
+  `dailyBudgetWei` off chain is a true rolling 24h window. They are both
+  ceilings and the tighter one always wins, but they are not the same window,
+  so an arm that spent its budget at 23:00 gets a fresh on-chain allowance an
+  hour later.
+- **Accrued performance fees are not trading capital.** A buy may only spend
+  the quote balance above `feesAccruedWei`, so `claimFees()` is always payable
+  and `withdrawableQuoteWei()` never reads zero because the operator spent
+  money the protocol was already owed. For the same reason the quote token
+  cannot change while fees are unclaimed; `claimFees()` is permissionless, so
+  anyone can clear that in one call.
 
 `sell` is callable by the owner or the operator and is **exempt from the spend
 caps**, on chain as well as off. A cap that traps a losing position is the

@@ -14,6 +14,7 @@ import {
     DailyBudget,
     DeadlineExpired,
     EthTransferFailed,
+    FeesPending,
     InsufficientBalance,
     InsufficientPosition,
     InvalidPolicy,
@@ -494,6 +495,59 @@ contract HoodArmAccountTest is HoodFixture {
         assertEq(account.feesAccruedWei(), 0);
         vm.expectRevert(NothingToClaim.selector);
         account.claimFees();
+    }
+
+    /// Accrued fees are the protocol's, not trading capital: a buy may not
+    /// spend them, or `claimFees()` would be unpayable and the owner would see
+    /// `withdrawableQuoteWei()` read zero while the account still held quote.
+    function test_buyCannotSpendAccruedFees() public {
+        uint256 got = buy(0.05 ether);
+        setTokensPerWeth(500e18);
+        sell(got);
+        uint256 fees = account.feesAccruedWei();
+        assertGt(fees, 0);
+
+        // Strip the account down to exactly the fee reserve: no ETH to wrap,
+        // no free quote, only what is owed.
+        vm.startPrank(owner);
+        account.ownerWithdraw(address(0), address(account).balance, owner);
+        account.ownerWithdraw(address(weth), account.withdrawableQuoteWei(), owner);
+        vm.stopPrank();
+        assertEq(weth.balanceOf(address(account)), fees);
+        assertEq(account.withdrawableQuoteWei(), 0);
+
+        vm.warp(block.timestamp + 60);
+        buyExpecting(abi.encodeWithSelector(InsufficientBalance.selector, 0.01 ether, 0), 0.01 ether);
+
+        // And the claim the reserve exists for still pays in full.
+        account.claimFees();
+        assertEq(weth.balanceOf(feeRecipient), fees);
+        assertEq(account.feesAccruedWei(), 0);
+    }
+
+    /// Fees are owed in the quote they were earned in, so the quote token
+    /// cannot change while any are unclaimed. `claimFees()` is permissionless,
+    /// so this is one call away and never a lockup.
+    function test_quoteTokenChangeWaitsForFeesToBeClaimed() public {
+        uint256 got = buy(0.05 ether);
+        setTokensPerWeth(500e18);
+        sell(got);
+        uint256 fees = account.feesAccruedWei();
+        assertGt(fees, 0);
+        assertEq(account.openPositionCount(), 0);
+
+        Policy memory next = account.policy();
+        next.quoteToken = address(token);
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(FeesPending.selector, fees));
+        account.setPolicy(next);
+
+        account.claimFees();
+        vm.prank(owner);
+        account.setPolicy(next);
+        (Policy memory proposed, uint256 effectiveAt) = account.pendingPolicy();
+        assertEq(proposed.quoteToken, address(token));
+        assertEq(effectiveAt, block.timestamp + account.POLICY_TIMELOCK());
     }
 
     function test_ownerCannotWithdrawAccruedFees() public {
