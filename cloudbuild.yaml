@@ -15,6 +15,16 @@ substitutions:
   _SERVICE: hood-oracle
   _IMAGE: us-central1-docker.pkg.dev/aerial-vehicle-466722-p5/hood-oracle/engine
   _NETWORK: mainnet
+  # Secrets to mount. The default set is the minimum a simulate-only deploy
+  # needs, so a first deploy does not require a funded trading key to exist.
+  # Add the optional ones once their secrets are created (docs/deploy.md):
+  #   TRADER_PRIVATE_KEY=hood-oracle-trader-private-key:latest
+  #   LLM_API_KEY=hood-oracle-llm-api-key:latest
+  #   TELEGRAM_BOT_TOKEN=hood-oracle-telegram-bot-token:latest
+  #   TELEGRAM_CHAT_ID=hood-oracle-telegram-chat-id:latest
+  # A --set-secrets naming a secret that does not exist fails the deploy, so
+  # never list one before creating it.
+  _SECRETS: DATABASE_URL=hood-oracle-database-url:latest,OPERATOR_TOKEN=hood-oracle-operator-token:latest
 
 steps:
   - id: build
@@ -53,8 +63,11 @@ steps:
       - --timeout=3600
       - --concurrency=80
       - --allow-unauthenticated
-      - --set-env-vars=NODE_ENV=production,HOOD_NETWORK=${_NETWORK},LOG_LEVEL=info,KILL_FILE=/app/KILL,WEB_DIST=/app/web/dist,LLM_PROVIDER=anthropic
-      - --set-secrets=DATABASE_URL=hood-oracle-database-url:latest,TRADER_PRIVATE_KEY=hood-oracle-trader-private-key:latest,OPERATOR_TOKEN=hood-oracle-operator-token:latest,LLM_API_KEY=hood-oracle-llm-api-key:latest,TELEGRAM_BOT_TOKEN=hood-oracle-telegram-bot-token:latest
+      # TRUST_PROXY=1 is load bearing: Cloud Run terminates TLS and forwards the
+      # caller in X-Forwarded-For. Without it every request looks like one client
+      # address and the rate limiter throttles all users as a single bucket.
+      - --set-env-vars=NODE_ENV=production,HOOD_NETWORK=${_NETWORK},LOG_LEVEL=info,KILL_FILE=/app/KILL,WEB_DIST=/app/web/dist,LLM_PROVIDER=anthropic,TRUST_PROXY=1
+      - --set-secrets=${_SECRETS}
       - --labels=app=hood-oracle,commit=${SHORT_SHA}
 
 images:

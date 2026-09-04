@@ -46,37 +46,56 @@ done
 ### Secrets
 
 Every credential is a Secret Manager reference, never a literal on the
-service. Create each one from a file or stdin so the value never lands in
-shell history:
+service. Only the first two are required: the deploy mounts exactly the set
+named by the `_SECRETS` substitution in `cloudbuild.yaml`, whose default is
+`DATABASE_URL` and `OPERATOR_TOKEN`, so a first simulate-only deploy needs no
+funded trading key to exist. Naming a secret that has not been created fails
+the deploy, so create a secret before you add it to `_SECRETS`.
+
+Create each one from a file or stdin so the value never lands in shell
+history:
 
 ```bash
 # Postgres. Neon, Cloud SQL, or any reachable Postgres 15+.
 printf '%s' 'postgres://user:pass@host:5432/hood_oracle?sslmode=require' | \
   gcloud secrets create hood-oracle-database-url --data-file=- --replication-policy=automatic
 
-# The signing key. A fresh wallet funded with only what you are prepared to lose.
-printf '%s' '0x<64 hex chars>' | \
-  gcloud secrets create hood-oracle-trader-private-key --data-file=- --replication-policy=automatic
-
-# Operator bearer token for every write route.
+# Operator bearer token for every write route. Required.
 openssl rand -hex 32 | tr -d '\n' | \
   gcloud secrets create hood-oracle-operator-token --data-file=- --replication-policy=automatic
+
+# Optional, and only once you intend to trade live: the signing key. Use a
+# fresh wallet funded with only what you are prepared to lose.
+printf '%s' '0x<64 hex chars>' | \
+  gcloud secrets create hood-oracle-trader-private-key --data-file=- --replication-policy=automatic
 
 # LLM key for narrative classification and the llm decision mode (Anthropic by default).
 printf '%s' 'sk-ant-...' | \
   gcloud secrets create hood-oracle-llm-api-key --data-file=- --replication-policy=automatic
 
-# Telegram alerts.
+# Telegram alerts. Both halves are needed for an alert to send.
 printf '%s' '123456:ABC...' | \
   gcloud secrets create hood-oracle-telegram-bot-token --data-file=- --replication-policy=automatic
+printf '%s' '-1001234567890' | \
+  gcloud secrets create hood-oracle-telegram-chat-id --data-file=- --replication-policy=automatic
+```
+
+Mount the optional ones by extending the substitution on the submit:
+
+```bash
+gcloud builds submit --config cloudbuild.yaml --region us-central1 \
+  --project aerial-vehicle-466722-p5 \
+  --substitutions=SHORT_SHA=manual$(date +%s),_SECRETS='DATABASE_URL=hood-oracle-database-url:latest,OPERATOR_TOKEN=hood-oracle-operator-token:latest,TRADER_PRIVATE_KEY=hood-oracle-trader-private-key:latest,LLM_API_KEY=hood-oracle-llm-api-key:latest,TELEGRAM_BOT_TOKEN=hood-oracle-telegram-bot-token:latest,TELEGRAM_CHAT_ID=hood-oracle-telegram-chat-id:latest'
 ```
 
 Rotate with `gcloud secrets versions add <name> --data-file=-`; the deploy
 references `:latest`, so the next deploy (or `gcloud run services update
 --update-secrets`) picks it up.
 
-`TELEGRAM_CHAT_ID`, `RPC_URLS` and `MIN_WALLET_ETH` are not secrets and are
-set as plain env vars (below).
+`RPC_URLS` and `MIN_WALLET_ETH` are not secrets and are set as plain env
+vars (below). Listing an accelerator endpoint first in `RPC_URLS` is the
+single biggest latency win and keeps the public endpoint as a last rung; the
+public RPC rate-limits per address and will throttle a busy engine.
 
 ### The database
 
@@ -112,8 +131,8 @@ then `gcloud run deploy hood-oracle` with:
 | `--timeout` | `3600` | SSE streams stay open. |
 | `--port` | `8080` | |
 | `--allow-unauthenticated` | | The dashboard and reads are public; writes are gated by the operator token. |
-| `--set-secrets` | the five secrets above | Read at container start. |
-| `--set-env-vars` | `NODE_ENV`, `HOOD_NETWORK`, `LOG_LEVEL`, `KILL_FILE`, `WEB_DIST`, `LLM_PROVIDER` | Non-secret config. |
+| `--set-secrets` | `${_SECRETS}` | Defaults to the two required secrets; extend the substitution to mount more. |
+| `--set-env-vars` | `NODE_ENV`, `HOOD_NETWORK`, `LOG_LEVEL`, `KILL_FILE`, `WEB_DIST`, `LLM_PROVIDER`, `TRUST_PROXY` | Non-secret config. `TRUST_PROXY=1` is set by the deploy because Cloud Run fronts the container. |
 
 Build logs go to Cloud Logging only (`options.logging: CLOUD_LOGGING_ONLY`),
 which is required when the build account has no bucket access.
