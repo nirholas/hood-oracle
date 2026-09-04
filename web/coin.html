@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Launch · hood-oracle</title>
+  <meta name="description" content="One launch on Robinhood Chain: score, pillars, features, firewall verdict, positions." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='7' y='7' width='18' height='18' rx='4' transform='rotate(45 16 16)' fill='%23cdd2e0'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/src/styles.css" />
+  <style>
+    .coin-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .coin-head h1 { margin: 4px 0 6px; font-size: clamp(24px, 4vw, 34px); letter-spacing: -0.02em; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .coin-meta { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; }
+    .chip { font: 600 11px/1 var(--mono); padding: 5px 9px; border-radius: 8px; background: var(--ghost-2); border: 1px solid var(--line); color: var(--muted); display: inline-flex; gap: 5px; align-items: center; }
+    .chip b { color: var(--ink); }
+    .chip a:hover { text-decoration: underline; }
+    .score-grid { display: grid; grid-template-columns: 170px 1fr; gap: 18px; align-items: center; }
+    @media (max-width: 600px) { .score-grid { grid-template-columns: 1fr; } }
+    .score-side { display: flex; flex-direction: column; gap: 10px; }
+    .score-side .line { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+    .score-side .line b { font-family: var(--mono); }
+    .hits { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+    .hits li { display: grid; grid-template-columns: minmax(0, 1fr) 70px 54px; gap: 8px; align-items: center; font: 500 12px/1.4 var(--mono); padding: 5px 0; border-top: 1px solid var(--line); }
+    .hits li:first-child { border-top: none; }
+    .hits .hk { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hits .hb { color: var(--faint); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hits .hw { text-align: right; font-weight: 700; }
+    .hits li.absent { opacity: .5; }
+    .reasons { margin: 12px 0 0; padding-left: 18px; color: var(--muted); font-size: 12.5px; line-height: 1.55; }
+    .hist { display: grid; grid-template-columns: 1fr; gap: 10px; }
+    .hist-list { display: flex; flex-direction: column; }
+    .hist-list div { display: grid; grid-template-columns: 1fr auto auto auto; gap: 10px; font: 600 11.5px/1.3 var(--mono); padding: 6px 0; border-top: 1px solid var(--line); color: var(--muted); }
+    .hist-list div:first-child { border-top: none; }
+    .hist-list b { color: var(--ink); }
+    .fw-check { display: grid; grid-template-columns: 80px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 8px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
+    .fw-check:first-child { border-top: none; }
+    .fw-check .fk { font: 600 11.5px/1.4 var(--mono); }
+    .fw-check .fr { color: var(--muted); }
+    .fw-check .fwt { font: 600 10px/1 var(--mono); color: var(--faint); }
+    .posrow { grid-template-columns: minmax(0, 1fr) 76px 76px 56px; }
+    .decrow { grid-template-columns: 70px minmax(0, 1fr) 50px; }
+  </style>
+</head>
+<body>
+  <header id="top" class="top"></header>
+  <main class="wrap">
+    <div class="crumb"><a href="/">Oracle</a> / <span id="crumbToken">launch</span></div>
+    <div id="page" aria-busy="true">
+      <div class="hero"><div><h1><span class="sk" style="width:220px;height:30px"></span></h1><p><span class="sk" style="width:340px"></span></p></div></div>
+      <div class="layout"><div class="col"><div class="card"><div class="sk block" style="height:160px"></div></div><div class="card"><div class="sk block" style="height:220px"></div></div></div><div class="col"><div class="card"><div class="sk block" style="height:180px"></div></div><div class="card"><div class="sk block" style="height:120px"></div></div></div></div>
+    </div>
+    <div class="foot">Scores are probabilities under the active model. Rug risk is published on its own and never blended into the score. Nothing here is financial advice.</div>
+  </main>
+  <script type="module" src="/src/coin.ts"></script>
+</body>
+</html>

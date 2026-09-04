@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Arms · hood-oracle</title>
+  <meta name="description" content="Arm and guard autonomous launch strategies on Robinhood Chain." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='7' y='7' width='18' height='18' rx='4' transform='rotate(45 16 16)' fill='%23cdd2e0'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/src/styles.css" />
+  <style>
+    .arm-layout { display: grid; grid-template-columns: 270px minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+    @media (max-width: 1140px) { .arm-layout { grid-template-columns: 270px minmax(0, 1fr); } .arm-layout .col.sticky { position: static; grid-column: 1 / -1; } }
+    @media (max-width: 820px) { .arm-layout { grid-template-columns: 1fr; } }
+    .qrow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 9px 0; border-top: 1px solid var(--line); }
+    .qrow:first-child { border-top: none; }
+    .qrow .q-sym { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 13px; min-width: 0; }
+    .qrow .q-sym a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .qrow .q-sym a:hover { text-decoration: underline; }
+    .qrow .q-sub { margin-top: 3px; font: 600 10.5px/1.3 var(--mono); color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; }
+    .qrow .q-score { font: 800 17px/1 var(--mono); text-align: right; }
+    .qrow .q-score.hi { color: var(--up); }
+    .qrow .q-size { font: 600 11px/1 var(--mono); color: var(--cyan); text-align: right; white-space: nowrap; }
+    .qrow .q-size span { display: block; font: 600 8.5px/1 var(--mono); color: var(--faint); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+    .qual-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 4px; }
+    .qual-head .qh-count { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; }
+    .qual-head .qh-meta { font: 600 10px/1 var(--mono); color: var(--faint); white-space: nowrap; }
+    .qual-sub { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+    .arm-state { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .arm-state .lab { font-weight: 800; font-size: 15px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .arm-state .sub { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+    .ministats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0 0; }
+    .ministats div { padding: 8px 9px; border-radius: 8px; background: var(--ghost); border: 1px solid var(--line); min-width: 0; }
+    .ministats span { display: block; font: 600 9px/1 var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--faint); margin-bottom: 5px; }
+    .ministats b { font: 800 14px/1 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+    .problems { margin: 10px 0 0; padding: 0 0 0 18px; color: var(--amber); font-size: 12px; line-height: 1.5; }
+    .ledgerrow { grid-template-columns: minmax(0, 1fr) 70px 70px 48px; }
+  </style>
+</head>
+<body>
+  <header id="top" class="top"></header>
+  <main class="wrap">
+    <div class="hero">
+      <div>
+        <span class="eyebrow">Arms · strategies with guardrails</span>
+        <h1>Arm a strategy</h1>
+        <p>An arm is one row of knobs: what to buy, how much, when to exit. Simulate first. Live mode needs a funded server wallet, a stop loss, and your explicit acknowledgement.</p>
+      </div>
+      <div class="btn-row"><button type="button" class="btn sm primary" id="newArmBtn">New arm</button></div>
+    </div>
+
+    <div id="armEmpty" class="hidden"></div>
+
+    <div class="arm-layout" id="armLayout">
+      <aside class="col">
+        <div class="card">
+          <div class="card-head"><div><h3>Arms <span class="badge" id="armCount"></span></h3><p class="sub">Select one to edit.</p></div></div>
+          <div id="armList" class="stack" style="gap:8px" aria-busy="true"></div>
+        </div>
+      </aside>
+
+      <section class="col" id="editorCol">
+        <form id="armForm" novalidate autocomplete="off" class="stack">
+          <div class="card">
+            <h3><span class="stepno">1</span> Identity and trigger</h3>
+            <p class="sub">What this arm is called, how it executes, and what wakes it up.</p>
+            <div class="field"><label for="fLabel">Label</label><input id="fLabel" type="text" maxlength="80" placeholder="e.g. NOXA prime only, small size" required /></div>
+            <div class="field"><label>Mode</label>
+              <div class="seg" id="modeSeg" role="group" aria-label="Execution mode">
+                <button type="button" data-v="simulate" class="on">Simulate<small>logs every play, spends nothing</small></button>
+                <button type="button" data-v="live">Live<small>real ETH from the server wallet</small></button>
+              </div>
+            </div>
+            <div class="field"><label>Trigger</label>
+              <div class="seg" id="triggerSeg" role="group" aria-label="Trigger">
+                <button type="button" data-v="new_launch" class="on">New launch<small>first sight + observation</small></button>
+                <button type="button" data-v="graduation">Graduation<small>Odyssey curve to pool</small></button>
+                <button type="button" data-v="oracle_crossing">Oracle crossing<small>score crosses the floor</small></button>
+              </div>
+            </div>
+            <div class="field"><label>Launchpads</label><div class="chips" id="lpChips"></div><div class="field-hint">Every launcher the intake recognises on 4663; <code>direct</code> is a pool created without a registered launchpad.</div></div>
+          </div>
+
+          <div class="card">
+            <h3><span class="stepno">2</span> Sizing and execution</h3>
+            <p class="sub">ETH on screen, wei under the hood. The daily budget must cover at least one trade.</p>
+            <div class="row2">
+              <div class="field"><label for="fPerTrade">Per trade</label><div class="suffixed"><input id="fPerTrade" type="number" min="0" step="0.001" inputmode="decimal" /><span class="suf">ETH</span></div></div>
+              <div class="field"><label for="fDaily">Daily budget</label><div class="suffixed"><input id="fDaily" type="number" min="0" step="0.01" inputmode="decimal" /><span class="suf">ETH</span></div></div>
+            </div>
+            <div class="row3">
+              <div class="field"><label for="fMaxConc">Open at once</label><input id="fMaxConc" type="number" min="1" max="50" step="1" /></div>
+              <div class="field"><label for="fCooldown">Cooldown</label><div class="suffixed"><input id="fCooldown" type="number" min="0" max="86400" step="1" /><span class="suf">sec</span></div></div>
+              <div class="field"><label for="fBuyDelay">Buy delay</label><div class="suffixed"><input id="fBuyDelay" type="number" min="0" max="600000" step="100" /><span class="suf">ms</span></div></div>
+            </div>
+            <div class="row2">
+              <div class="field"><label for="fSlippage">Slippage</label><div class="range-row"><input id="fSlippage" type="range" min="10" max="3000" step="10" /><output id="oSlippage">5.00%</output></div><div class="field-hint">Max price move accepted between quote and fill, in basis points.</div></div>
+              <div class="field"><label for="fImpact">Max price impact</label><div class="range-row"><input id="fImpact" type="range" min="0.5" max="50" step="0.5" /><output id="oImpact">10%</output></div><div class="field-hint">A buy that would move the pool more than this is refused.</div></div>
+            </div>
+            <div class="field"><label>Honeypot firewall</label>
+              <div class="seg" id="fwSeg" role="group" aria-label="Firewall level">
+                <button type="button" data-v="block" class="on">Block<small>refuse on a failed round trip</small></button>
+                <button type="button" data-v="warn">Warn<small>journal it, still buy</small></button>
+                <button type="button" data-v="off">Off<small>no simulation</small></button>
+              </div>
+            </div>
+            <div class="risk" id="riskSummary">Set a per-trade size and daily budget to see the exposure.</div>
+          </div>
+
+          <div class="card">
+            <h3><span class="stepno">3</span> Entry filters</h3>
+            <p class="sub">A launch must clear every filter that is set. Blank means not applied. Missing features fail closed.</p>
+            <div class="row2">
+              <div class="field"><label for="fMinScore">Minimum oracle score</label><div class="range-row"><input id="fMinScore" type="range" min="0" max="100" step="1" /><output id="oMinScore">off</output></div></div>
+              <div class="field"><label for="fMaxRug">Maximum rug risk</label><div class="range-row"><input id="fMaxRug" type="range" min="0" max="100" step="1" /><output id="oMaxRug">off</output></div></div>
+            </div>
+            <div class="row3">
+              <div class="field"><label for="fMinBuyers">Min unique buyers</label><input id="fMinBuyers" type="number" min="0" step="1" placeholder="off" /></div>
+              <div class="field"><label for="fMaxCreator">Max creator launches</label><input id="fMaxCreator" type="number" min="0" step="1" placeholder="off" /></div>
+              <div class="field"><label for="fMaxDeployer">Max deployer holding</label><div class="suffixed"><input id="fMaxDeployer" type="number" min="0" max="100" step="0.5" placeholder="off" /><span class="suf">%</span></div></div>
+            </div>
+            <div class="row3">
+              <div class="field"><label for="fMaxBundle">Max bundle score</label><input id="fMaxBundle" type="number" min="0" max="100" step="1" placeholder="off" /></div>
+              <div class="field"><label for="fMaxTop1">Max top-1 holder</label><div class="suffixed"><input id="fMaxTop1" type="number" min="0" max="100" step="0.5" placeholder="off" /><span class="suf">%</span></div></div>
+              <div class="field"><label for="fMinMcap">Market cap range</label><div class="row2" style="gap:6px"><div class="suffixed"><input id="fMinMcap" type="number" min="0" step="0.1" placeholder="min" /><span class="suf">Ξ</span></div><div class="suffixed"><input id="fMaxMcap" type="number" min="0" step="0.1" placeholder="max" /><span class="suf">Ξ</span></div></div></div>
+            </div>
+            <div class="toggle"><div class="t-lab"><b>Require socials</b><span>Skip launches with no website, X, or Telegram in their metadata.</span></div><button type="button" class="sw" id="swSocials" role="switch" aria-checked="false" aria-label="Require socials"></button></div>
+            <div class="toggle"><div class="t-lab"><b>Avoid dev dumps</b><span>Skip a launch once the deployer has sold inside the observation window.</span></div><button type="button" class="sw on" id="swDevDump" role="switch" aria-checked="true" aria-label="Avoid dev dumps"></button></div>
+            <div class="field" style="margin-top:14px"><label>Narratives (none selected = any)</label><div class="chips" id="catChips"></div></div>
+          </div>
+
+          <div class="card">
+            <h3><span class="stepno">4</span> Exits</h3>
+            <p class="sub">The stop loss is mandatory. The ladder takes initials out at a multiple and rides a moonbag.</p>
+            <div class="row3">
+              <div class="field"><label for="fStop">Stop loss</label><div class="suffixed"><input id="fStop" type="number" min="0" max="100" step="1" /><span class="suf">%</span></div></div>
+              <div class="field"><label for="fTp">Take profit</label><div class="suffixed"><input id="fTp" type="number" min="0" step="5" placeholder="off" /><span class="suf">%</span></div></div>
+              <div class="field"><label for="fTrail">Trailing stop</label><div class="suffixed"><input id="fTrail" type="number" min="0" max="100" step="1" placeholder="off" /><span class="suf">%</span></div></div>
+            </div>
+            <div class="row3">
+              <div class="field"><label for="fHold">Max hold</label><div class="suffixed"><input id="fHold" type="number" min="10" max="604800" step="10" /><span class="suf">sec</span></div></div>
+              <div class="field"><label for="fDecay">Liquidity decay</label><div class="suffixed"><input id="fDecay" type="number" min="10" step="10" placeholder="off" /><span class="suf">sec</span></div></div>
+              <div class="field"><label for="fInitials">Initials out at</label><div class="suffixed"><input id="fInitials" type="number" min="1.01" step="0.1" placeholder="off" /><span class="suf">x</span></div></div>
+            </div>
+            <div class="row2">
+              <div class="field"><label for="fMoonbag">Moonbag minimum</label><div class="suffixed"><input id="fMoonbag" type="number" min="0" max="100" step="1" /><span class="suf">%</span></div></div>
+              <div class="field"><label>Keep a moonbag on every exit</label><div class="toggle" style="padding:6px 0;border:none"><div class="t-lab"><span>Leave the moonbag even when a stop fires.</span></div><button type="button" class="sw" id="swMoonbagAlways" role="switch" aria-checked="false" aria-label="Moonbag always"></button></div></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3><span class="stepno">5</span> Intelligence</h3>
+            <p class="sub">Rules apply the filters above. The LLM arm replaces the rule shields with a model verdict per launch; hard guards still apply.</p>
+            <div class="row2">
+              <div class="field"><label>Decision mode</label>
+                <div class="seg" id="dmSeg" role="group" aria-label="Decision mode">
+                  <button type="button" data-v="rules" class="on">Rules</button>
+                  <button type="button" data-v="llm">LLM</button>
+                </div>
+              </div>
+              <div class="field"><label for="fLlmConf">LLM minimum confidence</label><div class="suffixed"><input id="fLlmConf" type="number" min="0" max="100" step="5" placeholder="off" /><span class="suf">%</span></div></div>
+            </div>
+            <div class="field"><label>Autonomy tier</label>
+              <div class="seg" id="autoSeg" role="group" aria-label="Autonomy tier">
+                <button type="button" data-v="probation">Probation</button>
+                <button type="button" data-v="standard" class="on">Standard</button>
+                <button type="button" data-v="trusted">Trusted</button>
+                <button type="button" data-v="autonomous">Autonomous</button>
+              </div>
+              <div class="field-hint">Earned from the realized record; bounds what the optimizer may change and how far.</div>
+            </div>
+            <div class="toggle"><div class="t-lab"><b>Auto-optimize</b><span>Let the optimizer job tune this arm's filters inside its autonomy bounds.</span></div><button type="button" class="sw" id="swAutoOpt" role="switch" aria-checked="false" aria-label="Auto optimize"></button></div>
+          </div>
+
+          <div class="card">
+            <h3><span class="stepno">6</span> Alerts and grouping</h3>
+            <p class="sub">Buy and sell alerts for this arm, and an experiment label for comparing arms.</p>
+            <div class="row2">
+              <div class="field"><label for="fTelegram">Telegram chat id</label><input id="fTelegram" type="text" inputmode="numeric" placeholder="numeric chat id" /><div class="field-hint">Needs <code>TELEGRAM_BOT_TOKEN</code> on the server.</div></div>
+              <div class="field"><label for="fGroup">Experiment group</label><input id="fGroup" type="text" maxlength="80" placeholder="optional" /></div>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <aside class="col sticky" id="sideCol">
+        <div class="card" id="stateCard">
+          <div class="arm-state">
+            <span class="arm-dot" id="armDot"></span>
+            <div><div class="lab" id="armLab">No arm selected</div><div class="sub" id="armSub">Pick an arm on the left or create one.</div></div>
+          </div>
+          <div class="btn-row">
+            <button type="button" class="btn primary" id="saveBtn" style="flex:1">Save</button>
+            <button type="button" class="btn arm" id="armBtn">Arm</button>
+          </div>
+          <div class="btn-row" style="margin-top:8px">
+            <button type="button" class="btn sm danger" id="killBtn" title="Trip this arm's kill switch: disables it and marks it killed">Kill</button>
+            <button type="button" class="btn sm ghost danger" id="deleteBtn">Delete</button>
+          </div>
+          <div class="note" id="saveNote" aria-live="polite"></div>
+          <ul class="problems hidden" id="problems"></ul>
+          <div class="ministats" id="miniStats">
+            <div><span>Open</span><b id="msOpen">0</b></div>
+            <div><span>Closed</span><b id="msClosed">0</b></div>
+            <div><span>Wins</span><b id="msWins">0</b></div>
+            <div><span>Realized</span><b id="msPnl">0</b></div>
+          </div>
+        </div>
+
+        <div class="card" id="previewCard">
+          <div class="qual-head"><div class="qh-count"><span class="dot live"></span><span id="qualCount">Reading the last 24h…</span></div><div class="qh-meta" id="qualMeta"></div></div>
+          <p class="qual-sub">What this arm would have bought in the last 24 hours with the filters on screen, sized as configured.</p>
+          <div id="qualBody"></div>
+        </div>
+
+        <div class="card" id="ledgerCard">
+          <div class="card-head"><div><h3>Recent positions</h3><p class="sub">This arm's last plays, graded live.</p></div><a class="btn xs" id="ledgerLink" href="/positions">All positions</a></div>
+          <div id="ledgerBody"></div>
+        </div>
+      </aside>
+    </div>
+
+    <div class="foot">Arming commits the server wallet inside the caps above and nowhere else. The kill switch halts new buys and keeps managing exits; it never market-sells on its own. Nothing here is financial advice.</div>
+  </main>
+  <script type="module" src="/src/arm.ts"></script>
+</body>
+</html>

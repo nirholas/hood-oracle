@@ -89,3 +89,39 @@ are re-denominated to ETH at fit-time rates and its provenance is displayed on
 the dashboard until the first promoted refit replaces it. `npm run
 oracle:backfill` reconstructs features and labels from chain history so that
 first refit can happen on day one.
+
+## Guards, in detail
+
+`src/guards/` is the deterministic layer between the entry gate and the
+executor. What it holds and where the rules are written up:
+
+| Module | Exports | Doc |
+|---|---|---|
+| `risk.ts` | `RiskEngine.check(ctx)`, `RiskContext`, `resolveEntrySize`, `GAS_HEADROOM_WEI`, `MIN_ENTRY_WEI`, `DAILY_LOSS_FRACTION_OF_BUDGET`, `fmtEth` | [guardrails.md](guardrails.md): the ordered checks, what fails closed and why |
+| `kill.ts` | `KillSwitch` (`arm`, `trip`, `clearApiKill`, `isKilled`, `reason`, `onTrip`, `onClear`, `dispose`), `CLEARABLE_KILL_PREFIXES` | [guardrails.md](guardrails.md): triggers and what is clearable |
+| `autonomy.ts` | `TIER_ORDER`, `GATES`, `TIER_BOUNDS`, `TIER_STEP_SCALE`, `TIER_BUDGET_WEIGHT`, `BASE_WRITABLE`, `TIER_UNLOCKS`, `tierFor`, `boundsFor`, `stepsFor`, `writableFor`, `clampToTier`, `atLeast`, `netEdgePct`, `ArmRecord` | [guardrails.md](guardrails.md): earned autonomy |
+| `optimizer.ts` | `proposeMutation`, `applyMutation`, `statsFromPositions`, `recordFromPositions`, `bestOracleThreshold`, `canonicalJson` | [guardrails.md](guardrails.md): the rules |
+| `firewall.ts` | `assessTradeSafety` | [guardrails.md](guardrails.md): the round trip |
+
+Ordering that matters: the risk engine runs before the firewall because the
+firewall costs an `eth_call` round trip and the risk engine costs nothing;
+the optimizer's Rule S runs before Rule D so a losing arm is never sized up
+on an unweighted average. The jobs scheduler computes `tierFor` from live
+fills only and passes simulated fills to `proposeMutation` only for arms
+still in simulate mode.
+
+## Deployment shape
+
+One container image (`Dockerfile`, multi-stage on `node:24-alpine`), one Cloud
+Run service (`cloudbuild.yaml`: `--min-instances 1 --max-instances 1
+--no-cpu-throttling`), every credential a Secret Manager reference. The
+runbook is [deploy.md](deploy.md). Locally, `docker-compose.yml` runs the same
+image beside Postgres 17.
+
+## Further reading
+
+- [guardrails.md](guardrails.md): every check, the kill switch, autonomy, the optimizer
+- [oracle.md](oracle.md): features, heads, labels, fit, gate, calibration, backfill
+- [arming.md](arming.md): simulate, read the ledger, go live, earn autonomy
+- [api.md](api.md): every route with examples
+- [deploy.md](deploy.md): Cloud Run, secrets, the accelerator RPC, rollback

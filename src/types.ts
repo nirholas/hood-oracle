@@ -13,9 +13,20 @@
 import type { Address, Hash, Hex } from 'viem'
 
 export type Network = 'mainnet' | 'testnet'
-export type Launchpad = 'noxa' | 'odyssey'
-/** Where a token trades right now. Odyssey tokens start on the curve and graduate to a pool. */
-export type Venue = 'curve' | 'pool'
+/**
+ * Where a launch came from. 'noxa' and 'odyssey' are the launchpads the SDK
+ * knows; the rest were identified from the Uniswap v3 / v4 pool-creation
+ * intake (see src/chain/launchpads.ts for addresses and evidence). 'direct'
+ * is a token whose pool was created straight through a position manager or
+ * an unregistered contract.
+ */
+export type Launchpad =
+  | 'noxa' | 'odyssey' | 'direct'
+  | 'pons' | 'rialto' | 'dontblink' | 'lunch' | 'tokenselect' | 'ramenpad'
+  | 'launcher-4a3e797b' | 'launcher-4fba72a7' | 'launcher-6e4910ea'
+  | 'rwa-launchpad' | 'longlauncher' | 'cashcat' | 'forge' | 'pair-v4'
+/** Where a token trades right now. Odyssey tokens start on the curve and graduate to a pool. 'v4' is a Uniswap v4 pool (observed and scored, not routable by the executor). */
+export type Venue = 'curve' | 'pool' | 'v4'
 export type Mode = 'simulate' | 'live'
 export type Side = 'buy' | 'sell'
 
@@ -369,6 +380,8 @@ export interface EngineHealth {
   arms: { total: number; enabled: number; live: number }
   positions: { open: number }
   model: { version: string; provenance: string; trainingRows: number; fittedAt: string | null }
+  /** Launches taken in during the last hour, keyed by launchpad name ('direct' for unregistered creators). */
+  launchpads: Record<string, number>
   startedAt: string
 }
 
@@ -410,4 +423,62 @@ export interface EngineApi {
   refreshArms(): Promise<void>
   /** Latest score for a token, or null if never scored. */
   lastVerdict(token: Address): OracleVerdict | null
+}
+
+// ── oracle: learning loop contracts (src/oracle/*) ───────────────────────────
+
+/** One named test the promotion gate ran on a candidate model. */
+export interface OracleGateCheck {
+  check: string
+  pass: boolean
+  detail: string
+}
+
+/** The promotion gate's decision on one candidate, with the sentence explaining it. */
+export interface OracleGateVerdict {
+  promote: boolean
+  reason: string
+  checks: OracleGateCheck[]
+}
+
+/** Observed hit rate for one 10-point conviction band. */
+export interface OracleCalibrationBand {
+  lo: number
+  hi: number
+  n: number
+  wins: number
+  /** Share of resolved launches in the band that won; null when the band is empty. */
+  observed: number | null
+  /** What the band claims, via the tier anchors, at its mean score; null when empty. */
+  predicted: number | null
+  lift: number | null
+}
+
+/** Stored in `settings` under 'oracle:calibration'. */
+export interface OracleCalibration {
+  version: number
+  network: Network
+  computedAt: string
+  modelVersion: string
+  resolvedN: number
+  winsN: number
+  baseRate: number | null
+  bands: OracleCalibrationBand[]
+}
+
+/** What the narrative classifier says a launch is. */
+export interface NarrativeRead {
+  category: Category
+  /** 0..1 */
+  confidence: number
+  narrative: string
+  tags: string[]
+  source: 'llm' | 'heuristic'
+}
+
+/** Handle on the oracle's scheduled jobs. Implemented in src/oracle/jobs.ts. */
+export interface OracleJobsApi {
+  /** Run one job now, outside its schedule. Resolves when it finishes; a job already running is awaited, not duplicated. */
+  runNow(job: 'labels' | 'calibrate' | 'refit'): Promise<void>
+  stop(): void
 }

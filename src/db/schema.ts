@@ -17,7 +17,7 @@ export const arms = pgTable('arms', {
   killSwitch: boolean('kill_switch').notNull().default(false),
   mode: text('mode').notNull().default('simulate'),
   trigger: text('trigger').notNull().default('new_launch'),
-  launchpads: jsonb('launchpads').$type<string[]>().notNull().default(['noxa', 'odyssey']),
+  launchpads: jsonb('launchpads').$type<string[]>().notNull().default(['noxa', 'odyssey', 'direct', 'pons', 'rialto', 'dontblink', 'lunch', 'tokenselect', 'ramenpad', 'launcher-4a3e797b', 'launcher-4fba72a7', 'launcher-6e4910ea', 'rwa-launchpad', 'longlauncher', 'cashcat', 'forge', 'pair-v4']),
   perTradeWei: wei('per_trade_wei').notNull().default('0'),
   dailyBudgetWei: wei('daily_budget_wei').notNull().default('0'),
   maxConcurrentPositions: integer('max_concurrent_positions').notNull().default(1),

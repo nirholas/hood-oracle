@@ -1,0 +1,68 @@
+# Cloud Build: build the engine image, push it to Artifact Registry, deploy it
+# to Cloud Run as a single always-on instance. Full runbook: docs/deploy.md.
+#
+#   gcloud builds submit --config cloudbuild.yaml --region us-central1 \
+#     --project aerial-vehicle-466722-p5 \
+#     --substitutions=SHORT_SHA=manual$(date +%s)
+#
+# The project's default compute service account was deleted. Every build MUST
+# pin the build SA below and every deploy MUST pin the runtime SA; a config
+# without either fails before the first step runs.
+serviceAccount: projects/aerial-vehicle-466722-p5/serviceAccounts/three-ws-build@aerial-vehicle-466722-p5.iam.gserviceaccount.com
+
+substitutions:
+  _REGION: us-central1
+  _SERVICE: hood-oracle
+  _IMAGE: us-central1-docker.pkg.dev/aerial-vehicle-466722-p5/hood-oracle/engine
+  _NETWORK: mainnet
+
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag=${_IMAGE}:${SHORT_SHA}
+      - --tag=${_IMAGE}:latest
+      - --cache-from=${_IMAGE}:latest
+      - --build-arg=BUILDKIT_INLINE_CACHE=1
+      - .
+    env:
+      - DOCKER_BUILDKIT=1
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args: [push, --all-tags, "${_IMAGE}"]
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_IMAGE}:${SHORT_SHA}
+      - --region=${_REGION}
+      - --platform=managed
+      - --service-account=three-ws@aerial-vehicle-466722-p5.iam.gserviceaccount.com
+      - --port=8080
+      - --cpu=2
+      - --memory=2Gi
+      - --min-instances=1
+      - --max-instances=1
+      - --no-cpu-throttling
+      - --timeout=3600
+      - --concurrency=80
+      - --allow-unauthenticated
+      - --set-env-vars=NODE_ENV=production,HOOD_NETWORK=${_NETWORK},LOG_LEVEL=info,KILL_FILE=/app/KILL,WEB_DIST=/app/web/dist,LLM_PROVIDER=anthropic
+      - --set-secrets=DATABASE_URL=hood-oracle-database-url:latest,TRADER_PRIVATE_KEY=hood-oracle-trader-private-key:latest,OPERATOR_TOKEN=hood-oracle-operator-token:latest,LLM_API_KEY=hood-oracle-llm-api-key:latest,TELEGRAM_BOT_TOKEN=hood-oracle-telegram-bot-token:latest
+      - --labels=app=hood-oracle,commit=${SHORT_SHA}
+
+images:
+  - ${_IMAGE}:${SHORT_SHA}
+  - ${_IMAGE}:latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+
+timeout: 1800s

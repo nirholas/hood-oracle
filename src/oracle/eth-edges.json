@@ -1,0 +1,54 @@
+{
+  "sol_usd": 104.76,
+  "eth_usd": 2505.28,
+  "factor": 0.0418157,
+  "fetched_at": "2026-09-03T18:21:29.076Z",
+  "source": "https://api.coingecko.com/api/v3/simple/price?ids=solana,ethereum&vs_currencies=usd",
+  "edges": {
+    "buy_volume_eth": [
+      0.0209,
+      0.335,
+      1.05
+    ],
+    "sell_volume_eth": [
+      0.00418,
+      0.0836,
+      0.418
+    ],
+    "net_volume_eth": [
+      0,
+      0.0418,
+      0.209,
+      0.836
+    ],
+    "largest_buy_eth": [
+      0.00836,
+      0.105,
+      0.209
+    ],
+    "avg_buy_eth": [
+      0.00209,
+      0.0209
+    ],
+    "median_buy_eth": [
+      0.000836,
+      0.00627,
+      0.0418
+    ],
+    "mc_eth_first_seen": [
+      1.17,
+      1.25,
+      1.46
+    ],
+    "dev_buy_eth": [
+      0.00209,
+      0.0209,
+      0.0836
+    ],
+    "dev_sell_eth": [
+      0.00000418,
+      0.0209,
+      0.0836
+    ]
+  }
+}
