@@ -343,3 +343,7 @@ instead of a Geyser stream, and fit thresholds sized for a young chain.
 ## License
 
 Apache-2.0. Copyright 2026 nirholas.
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=nirholas/hood-oracle&type=Date)](https://www.star-history.com/#nirholas/hood-oracle&Date)
