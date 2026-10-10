@@ -1,0 +1,28 @@
+# hood-oracle
+
+> Autonomous Robinhood Chain launch trader: a learning conviction oracle scores every NOXA and Odyssey launch, arm-and-guardrail controls, sequencer-feed execution, live dashboard.
+
+hood-oracle is an open-source repository by nirholas, part of the three.ws ecosystem.
+
+## Docs
+
+- [README](https://github.com/nirholas/hood-oracle/blob/HEAD/README.md): install, usage and reference
+- [Quickstart](https://github.com/nirholas/hood-oracle/blob/HEAD/README.md#quickstart)
+- [Architecture](https://github.com/nirholas/hood-oracle/blob/HEAD/README.md#architecture)
+- [Arms: the knobs](https://github.com/nirholas/hood-oracle/blob/HEAD/README.md#arms-the-knobs)
+- [Guardrails](https://github.com/nirholas/hood-oracle/blob/HEAD/README.md#guardrails)
+- [How the oracle learns](https://github.com/nirholas/hood-oracle/blob/HEAD/README.md#how-the-oracle-learns)
+- [API](https://github.com/nirholas/hood-oracle/blob/HEAD/README.md#api)
+- [Non-custodial accounts](https://github.com/nirholas/hood-oracle/blob/HEAD/README.md#non-custodial-accounts)
+- [Agents: MCP, SDK, x402](https://github.com/nirholas/hood-oracle/blob/HEAD/README.md#agents-mcp-sdk-x402)
+- [AGENTS.md](https://github.com/nirholas/hood-oracle/blob/HEAD/AGENTS.md): guidance for coding agents
+- [Full text for LLMs](https://github.com/nirholas/hood-oracle/blob/HEAD/llms-full.txt): the README inlined
+
+## Project
+
+- [Source](https://github.com/nirholas/hood-oracle)
+- [Issues](https://github.com/nirholas/hood-oracle/issues)
+- [Discussions](https://github.com/nirholas/hood-oracle/discussions)
+- [Homepage](https://three.ws)
+- [three.ws](https://three.ws): the platform this is part of
+- [All repositories by nirholas](https://github.com/nirholas/nirholas#readme)

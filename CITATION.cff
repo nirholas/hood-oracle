@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it as below.
+title: "hood-oracle"
+abstract: "Autonomous Robinhood Chain launch trader: a learning conviction oracle scores every NOXA and Odyssey launch, arm-and-guardrail controls, sequencer-feed execution, live dashboard."
+license: Apache-2.0
+repository-code: "https://github.com/nirholas/hood-oracle"
+url: "https://three.ws"
+authors:
+  - name: three.ws
+    website: "https://three.ws"

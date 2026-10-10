@@ -1,5 +1,10 @@
 # hood-oracle
 
+<!-- three.ws:badges -->
+[![GitHub stars](https://img.shields.io/github/stars/nirholas/hood-oracle?style=flat&logo=github)](https://github.com/nirholas/hood-oracle/stargazers) [![License](https://img.shields.io/github/license/nirholas/hood-oracle?style=flat)](https://github.com/nirholas/hood-oracle/blob/HEAD/LICENSE) [![Last commit](https://img.shields.io/github/last-commit/nirholas/hood-oracle?style=flat)](https://github.com/nirholas/hood-oracle/commits) [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat)](https://github.com/nirholas/hood-oracle/pulls) [![AI agent friendly](https://img.shields.io/badge/AI%20agents-AGENTS.md%20%2B%20llms.txt-6d5dfc?style=flat)](https://github.com/nirholas/hood-oracle/blob/HEAD/AGENTS.md)
+<!-- /three.ws:badges -->
+
+
 An autonomous launch trader for **Robinhood Chain** (chain id 4663, an Arbitrum
 Orbit L2). It holds the chain's sequencer feed open, watches every token that
 launches on **NOXA** and **The Odyssey**, scores each one in its first ninety
@@ -347,3 +352,26 @@ Apache-2.0. Copyright 2026 nirholas.
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=nirholas/hood-oracle&type=Date)](https://www.star-history.com/#nirholas/hood-oracle&Date)
+
+<!-- three.ws:growth -->
+## Support the project
+
+If hood-oracle saves you time, **[star it on GitHub](https://github.com/nirholas/hood-oracle)**. Stars are how other developers and AI agents find the repositories worth trusting, and they cost you one click.
+
+Know someone who would use it? [Post on X](https://twitter.com/intent/tweet?text=hood-oracle%3A%20Autonomous%20Robinhood%20Chain%20launch%20trader%3A%20a%20learning%20conviction%20oracle%20scores%20every%20NOXA%20and&url=https%3A%2F%2Fgithub.com%2Fnirholas%2Fhood-oracle) · [Share on Bluesky](https://bsky.app/intent/compose?text=hood-oracle%3A%20Autonomous%20Robinhood%20Chain%20launch%20trader%3A%20a%20learning%20conviction%20oracle%20scores%20every%20NOXA%20and%20https%3A%2F%2Fgithub.com%2Fnirholas%2Fhood-oracle) · [Share on LinkedIn](https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fgithub.com%2Fnirholas%2Fhood-oracle) · [Submit to Hacker News](https://news.ycombinator.com/submitlink?u=https%3A%2F%2Fgithub.com%2Fnirholas%2Fhood-oracle&t=hood-oracle%3A%20Autonomous%20Robinhood%20Chain%20launch%20trader%3A%20a%20learning%20conviction%20oracle%20scores%20every%20NOXA%20and) · [Share on Reddit](https://www.reddit.com/submit?url=https%3A%2F%2Fgithub.com%2Fnirholas%2Fhood-oracle&title=hood-oracle%3A%20Autonomous%20Robinhood%20Chain%20launch%20trader%3A%20a%20learning%20conviction%20oracle%20scores%20every%20NOXA%20and)
+
+## Built for AI agents too
+
+Coding agents and LLM tooling can read this repo directly: [AGENTS.md](./AGENTS.md), [llms.txt](./llms.txt), [llms-full.txt](./llms-full.txt). Point an agent at `https://github.com/nirholas/hood-oracle` and it has the context it needs.
+
+## More from the same author
+
+- [All repositories by nirholas](https://github.com/nirholas/nirholas#readme): the full catalog, grouped by topic
+- [three.ws](https://three.ws): the platform for 3D AI agents with Solana wallets, a skill marketplace and x402 payments
+- Questions or ideas: [open an issue](https://github.com/nirholas/hood-oracle/issues) or [start a discussion](https://github.com/nirholas/hood-oracle/discussions)
+
+## Contributors
+
+[![Contributors](https://contrib.rocks/image?repo=nirholas/hood-oracle)](https://github.com/nirholas/hood-oracle/graphs/contributors)
+
+<!-- /three.ws:growth -->
