@@ -44,9 +44,9 @@
   "dependencies": {
     "@hono/node-server": "^2.1.1",
     "@hono/zod-validator": "^0.9.1",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.13.5",
+    "hono": "^4.13.13",
     "hood402": "^0.1.1",
     "hoodchain": "^0.1.1",
     "marked": "^18.0.11",
