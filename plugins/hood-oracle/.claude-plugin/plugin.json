@@ -2,9 +2,17 @@
   "name": "hood-oracle",
   "version": "0.1.0",
   "description": "Read the hood-oracle launch conviction feed and manage its trading arms and kill switch on Robinhood Chain.",
-  "author": {"name": "nirholas"},
+  "author": {
+    "name": "nirholas"
+  },
   "repository": "https://github.com/nirholas/hood-oracle",
+  "homepage": "https://three.ws",
   "license": "Apache-2.0",
-  "keywords": ["robinhood-chain", "trading-bot", "oracle", "mcp", "launches"],
-  "homepage": "https://three.ws"
+  "keywords": [
+    "robinhood-chain",
+    "trading-bot",
+    "oracle",
+    "mcp",
+    "launches"
+  ]
 }

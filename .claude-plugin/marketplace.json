@@ -1,6 +1,20 @@
 {
   "name": "hood-oracle",
-  "owner": {"name": "nirholas"},
+  "owner": {
+    "name": "nirholas"
+  },
   "description": "Skill for operating the hood-oracle Robinhood Chain launch trader through its MCP server.",
-  "plugins": [{"name": "hood-oracle", "source": "./", "description": "Operate hood-oracle: oracle feed, scores, arms and kill switch.", "tags": ["robinhood-chain", "trading-bot", "mcp"]}]
+  "plugins": [
+    {
+      "name": "hood-oracle",
+      "source": "./plugins/hood-oracle",
+      "description": "Operate hood-oracle: oracle feed, scores, arms and kill switch.",
+      "category": "development",
+      "tags": [
+        "robinhood-chain",
+        "trading-bot",
+        "mcp"
+      ]
+    }
+  ]
 }
