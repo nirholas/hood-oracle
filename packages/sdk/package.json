@@ -9,7 +9,15 @@
     "url": "git+https://github.com/nirholas/hood-oracle.git",
     "directory": "packages/sdk"
   },
-  "keywords": ["robinhood-chain", "x402", "oracle", "trading", "sdk", "sse", "usdg"],
+  "keywords": [
+    "robinhood-chain",
+    "x402",
+    "oracle",
+    "trading",
+    "sdk",
+    "sse",
+    "usdg"
+  ],
   "type": "module",
   "sideEffects": false,
   "main": "./dist/index.js",
@@ -21,7 +29,10 @@
     },
     "./package.json": "./package.json"
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "engines": {
     "node": ">=20"
   },
@@ -35,7 +46,11 @@
     "viem": "^2.0.0"
   },
   "peerDependenciesMeta": {
-    "hood402": { "optional": true },
-    "viem": { "optional": true }
+    "hood402": {
+      "optional": true
+    },
+    "viem": {
+      "optional": true
+    }
   }
 }
